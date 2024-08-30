@@ -1,10 +1,10 @@
 # WasabiBucket
-CVE를 LLM으로 분석해보자!
+- CVE를 LLM으로 분석해보자!
 
 ## 개요
-이 프로젝트는 CVE 데이터를 수집하고 분석하며, API를 통해 제공하는 Go 언어 기반의 애플리케이션입니다. 각 컴포넌트(collector, analyzer, server)는 독립적으로 실행될 수 있으며, 공통 기능은 internal/common 패키지에 구현되어 있습니다.
+- 이 프로젝트는 CVE 데이터를 수집하고 분석하며, API를 통해 제공하는 Go 언어 기반의 애플리케이션입니다. 각 컴포넌트(collector, analyzer, server)는 독립적으로 실행될 수 있으며, 공통 기능은 internal/common 패키지에 구현되어 있습니다.
 
-##구조
+## 구조
 ```
 /WasabiBucket/
 ├── cmd/
