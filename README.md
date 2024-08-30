@@ -5,6 +5,7 @@ CVE를 LLM으로 분석해보자!
 이 프로젝트는 CVE 데이터를 수집하고 분석하며, API를 통해 제공하는 Go 언어 기반의 애플리케이션입니다. 각 컴포넌트(collector, analyzer, server)는 독립적으로 실행될 수 있으며, 공통 기능은 internal/common 패키지에 구현되어 있습니다.
 
 ##구조
+```
 /WasabiBucket/
 ├── cmd/
 │   ├── collector/
@@ -36,6 +37,7 @@ CVE를 LLM으로 분석해보자!
 ├── go.sum
 ├── README.md
 └── Makefile
+```
 
 1. cmd/: 실행 가능한 애플리케이션의 메인 패키지들을 포함합니다.
 - collector/main.go: CVE 데이터 수집 프로세스의 진입점
