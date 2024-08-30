@@ -38,7 +38,6 @@
 ├── README.md
 └── Makefile
 ```
-
 1. cmd/: 실행 가능한 애플리케이션의 메인 패키지들을 포함합니다.
 - collector/main.go: CVE 데이터 수집 프로세스의 진입점
 - analyzer/main.go: CVE 데이터 분석 프로세스의 진입점
