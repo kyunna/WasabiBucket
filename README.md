@@ -8,8 +8,6 @@
 1. Analyzer 컴포넌트 구현: SQS에서 메시지를 수신하고 LLM을 활용하여 CVE 데이터 분석
 2. Frontend 개발: Vue.js를 사용하여 사용자 인터페이스 구현
 3. API 개발: AWS API Gateway와 Lambda를 활용한 백엔드 API 구현
-4. 테스트 커버리지 확대: 단위 테스트 및 통합 테스트 추가
-5. 문서화: API 문서 및 사용자 가이드 작성
 
 ## 작업 목록
 ### Project
