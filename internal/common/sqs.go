@@ -1,23 +1,21 @@
-package collector
+package common 
 
 import (
-	"wasabibucket/internal/common"
-
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/sqs"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 )
 
-type SQSPublisher struct {
+type SQSClient struct {
 	svc      *sqs.SQS
 	queueURL string
 }
 
-func NewSQSPublisher(config *common.Config) (*SQSPublisher, error) {
+func NewSQSClient(config *Config) (*SQSClient, error) {
 	sess, err := session.NewSession(&aws.Config{
-		Region:      aws.String(config.AWSConfig.Region),
-		Credentials: credentials.NewStaticCredentials(config.AWSConfig.AccessKey, config.AWSConfig.SecretAccessKey, ""),
+		Region:      aws.String(config.SQSConfig.Region),
+		Credentials: credentials.NewStaticCredentials(config.SQSConfig.AccessKey, config.SQSConfig.SecretAccessKey, ""),
 	})
 	if err != nil {
 		return nil, err
@@ -25,13 +23,13 @@ func NewSQSPublisher(config *common.Config) (*SQSPublisher, error) {
 
 	svc := sqs.New(sess)
 
-	return &SQSPublisher{
+	return &SQSClient{
 		svc:      svc,
-		queueURL: config.AWSConfig.SQSQueueURL,
+		queueURL: config.SQSConfig.SQSQueueURL,
 	}, nil
 }
 
-func (p *SQSPublisher) PublishCVEUpdate(cveID string) error {
+func (p *SQSClient) PublishCVEUpdate(cveID string) error {
 	_, err := p.svc.SendMessage(&sqs.SendMessageInput{
 		DelaySeconds: aws.Int64(10),
 		// MessageAttributes: map[string]*sqs.MessageAttributeValue{

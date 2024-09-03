@@ -11,8 +11,8 @@ type Logger struct {
 	*log.Logger
 }
 
-func InitLogger(config *Config) (*Logger, error) {
-	logDir := filepath.Join(".", "log")
+func InitLogger(appName string, config *Config) (*Logger, error) {
+	logDir := filepath.Join(".", "log", appName)
 	err := os.MkdirAll(logDir, 0755)
 	if err != nil {
 		return nil, err

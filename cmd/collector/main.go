@@ -20,7 +20,7 @@ func main() {
 	}
 	defer db.Close()
 
-	logger, err := common.InitLogger(config)
+	logger, err := common.InitLogger("collector", config)
 	if err != nil {
 		log.Fatalf("Error initializing logger: %v", err)
 	}
@@ -35,7 +35,7 @@ func main() {
 	// startDate := now.Add(-24 * time.Hour).Truncate(time.Hour)
 	// endDate := now
 
-	startDate, _ := time.Parse("2006-01-02T15:04:05.000", "2024-09-01T00:00:00.000")
+	startDate, _ := time.Parse("2006-01-02T15:04:05.000", "2024-09-03T00:00:00.000")
 	endDate, _ := time.Parse("2006-01-02T15:04:05.000", "2024-09-05T07:00:00.000")
 
 	startDateGMT := startDate.UTC()
@@ -43,7 +43,7 @@ func main() {
 
 	logger.Printf("Fetching CVEs from %s to %s (GMT)\n", startDateGMT.Format(time.RFC3339), endDateGMT.Format(time.RFC3339))
 
-	err = collector.CollectCVEData(config, db, logger, startDateGMT, endDateGMT)
+	err = collector.Run(config, db, logger, startDateGMT, endDateGMT)
 	if err != nil {
 		logger.Fatalf("Error collecting CVE data: %v", err)
 	}

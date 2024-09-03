@@ -8,7 +8,7 @@ import (
 type Config struct {
 	NVDAPIKey string
 	DBConfig  DBConfig
-	AWSConfig AWSConfig
+	SQSConfig SQSConfig
 }
 
 type DBConfig struct {
@@ -19,7 +19,7 @@ type DBConfig struct {
 	Name     string
 }
 
-type AWSConfig struct {
+type SQSConfig struct {
 	AccessKey		    string
 	SecretAccessKey string
 	Region          string
@@ -41,7 +41,7 @@ func LoadConfig() (*Config, error) {
 			Password: os.Getenv("DB_PASSWORD"),
 			Name:     os.Getenv("DB_NAME"),
 		},
-		AWSConfig: AWSConfig {
+		SQSConfig: SQSConfig {
 			AccessKey:       os.Getenv("AWS_ACCESS_KEY"),
 			SecretAccessKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
 			Region:          os.Getenv("AWS_REGION"),
