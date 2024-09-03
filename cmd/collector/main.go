@@ -25,18 +25,18 @@ func main() {
 		log.Fatalf("Error initializing logger: %v", err)
 	}
 
-	location, err := time.LoadLocation("Asia/Seoul")
-	if err != nil {
-		log.Printf("Error loading location: %v\n", err)
-		return
-	}
+	// location, err := time.LoadLocation("Asia/Seoul")
+	// if err != nil {
+	// 	log.Printf("Error loading location: %v\n", err)
+	// 	return
+	// }
 
-	now := time.Now().In(location)
-	startDate := now.Add(-24 * time.Hour).Truncate(time.Hour)
-	endDate := now
+	// now := time.Now().In(location)
+	// startDate := now.Add(-24 * time.Hour).Truncate(time.Hour)
+	// endDate := now
 
-	// startDate, _ := time.Parse("2006-01-02T15:04:05.000", "2024-08-01T00:00:00.000")
-	// endDate, _ := time.Parse("2006-01-02T15:04:05.000", "2024-09-01T00:00:00.000")
+	startDate, _ := time.Parse("2006-01-02T15:04:05.000", "2024-09-01T00:00:00.000")
+	endDate, _ := time.Parse("2006-01-02T15:04:05.000", "2024-09-05T07:00:00.000")
 
 	startDateGMT := startDate.UTC()
 	endDateGMT := endDate.UTC()

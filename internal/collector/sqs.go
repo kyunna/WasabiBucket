@@ -34,12 +34,12 @@ func NewSQSPublisher(config *common.Config) (*SQSPublisher, error) {
 func (p *SQSPublisher) PublishCVEUpdate(cveID string) error {
 	_, err := p.svc.SendMessage(&sqs.SendMessageInput{
 		DelaySeconds: aws.Int64(10),
-		MessageAttributes: map[string]*sqs.MessageAttributeValue{
-			"CVE": {
-				DataType:    aws.String("String"),
-				StringValue: aws.String("CVE Update"),
-			},
-		},
+		// MessageAttributes: map[string]*sqs.MessageAttributeValue{
+		// 	"CVE": {
+		// 		DataType:    aws.String("String"),
+		// 		StringValue: aws.String("Analyze target CVE ID"),
+		// 	},
+		// },
 		MessageBody: aws.String(cveID),
 		QueueUrl:    &p.queueURL,
 	})
