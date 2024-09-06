@@ -6,7 +6,7 @@ import (
 	"wasabibucket/pkg/models"
 )
 
-func storeCVEData(db *common.Database, cve models.CVEData) (bool, error) {
+func storeCVEData(db common.DatabaseConnector, cve models.CVEData) (bool, error) {
 	query := `
 	WITH 
 	changes AS (

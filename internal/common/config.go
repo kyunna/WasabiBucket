@@ -1,17 +1,39 @@
 package common
 
 import (
+	"fmt"
 	"github.com/joho/godotenv"
 	"os"
+	"strconv"
+	"strings"
 )
 
-type Config struct {
-	NVDAPIKey string
-	DBConfig  DBConfig
-	SQSConfig SQSConfig
+type ConfigLoader interface {
+	Load() error
+	GetLoggerConfig() LoggerConfig
+	GetNVDConfig() NVDConfig
+	GetDatabaseConfig() DatabaseConfig
+	GetSQSConfig() SQSConfig
 }
 
-type DBConfig struct {
+type Config struct {
+	Logger   LoggerConfig
+	NVD      NVDConfig
+	Database DatabaseConfig
+	SQS      SQSConfig
+}
+
+type LoggerConfig struct {
+	BaseDir       string
+	ConsoleOutput bool
+}
+
+type NVDConfig struct {
+	APIKey string
+	APIUrl string
+}
+
+type DatabaseConfig struct {
 	Host     string
 	Port     string
 	User     string
@@ -20,32 +42,94 @@ type DBConfig struct {
 }
 
 type SQSConfig struct {
-	AccessKey		    string
+	AccessKey       string
 	SecretAccessKey string
 	Region          string
-	SQSQueueURL     string
+	QueueURL        string
 }
 
-func LoadConfig() (*Config, error) {
+func NewConfig() ConfigLoader {
+	return &Config{}
+}
+
+func (c *Config) Load() error {
 	err := godotenv.Load()
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("failed to load .env file: %w", err)
 	}
 
-	return &Config{
-		NVDAPIKey: os.Getenv("NVD_API_KEY"),
-		DBConfig: DBConfig {
-			Host:     os.Getenv("DB_HOST"),
-			Port:     os.Getenv("DB_PORT"),
-			User:     os.Getenv("DB_USER"),
-			Password: os.Getenv("DB_PASSWORD"),
-			Name:     os.Getenv("DB_NAME"),
-		},
-		SQSConfig: SQSConfig {
-			AccessKey:       os.Getenv("AWS_ACCESS_KEY"),
-			SecretAccessKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
-			Region:          os.Getenv("AWS_REGION"),
-			SQSQueueURL:     os.Getenv("SQS_QUEUE_URL"),
-		},
-	}, nil
+	c.Logger = LoggerConfig{
+		BaseDir: getEnv("BASE_DIR", "./log"),
+		ConsoleOutput: getEnvBool("CONSOLE_OUTPUT", false),
+	}
+	c.NVD = NVDConfig{
+		APIUrl: getEnv("NVD_API_URL", "https://services.nvd.nist.gov/rest/json/cves/2.0"),
+		APIKey: getEnv("NVD_API_KEY", ""),
+	}
+	c.Database = DatabaseConfig{
+		Host:     getEnv("DB_HOST", "localhost"),
+		Port:     getEnv("DB_PORT", "5432"),
+		User:     getEnv("DB_USER", ""),
+		Password: getEnv("DB_PASSWORD", ""),
+		Name:     getEnv("DB_NAME", ""),
+	}
+	c.SQS = SQSConfig{
+		AccessKey:       getEnv("AWS_ACCESS_KEY", ""),
+		SecretAccessKey: getEnv("AWS_SECRET_ACCESS_KEY", ""),
+		Region:          getEnv("AWS_REGION", "us-west-2"),
+		QueueURL:        getEnv("SQS_QUEUE_URL", ""),
+	}
+
+	if err := c.validate(); err != nil {
+		return fmt.Errorf("config validation failed: %w", err)
+	}
+
+	return nil
+}
+
+func (c *Config) GetLoggerConfig() LoggerConfig {
+	return c.Logger
+}
+
+func (c *Config) GetNVDConfig() NVDConfig {
+	return c.NVD
+}
+
+func (c *Config) GetDatabaseConfig() DatabaseConfig {
+	return c.Database
+}
+
+func (c *Config) GetSQSConfig() SQSConfig {
+	return c.SQS
+}
+
+func getEnv(key, fallback string) string {
+	if value, exists := os.LookupEnv(key); exists {
+		return value
+	}
+	return fallback
+}
+
+func getEnvBool(key string, fallback bool) bool {
+	if value, exists := os.LookupEnv(key); exists {
+		parsedValue, err := strconv.ParseBool(strings.ToLower(value))
+		if err != nil {
+			return fallback
+		}
+		return parsedValue
+	}
+	return fallback
+}
+
+func (c *Config) validate() error {
+	if c.NVD.APIKey == "" {
+		return fmt.Errorf("NVD API Key is required")
+	}
+	if c.Database.Host == "" || c.Database.Port == "" || c.Database.User == "" {
+		return fmt.Errorf("Database configuration is incomplete")
+	}
+	if c.SQS.AccessKey == "" || c.SQS.SecretAccessKey == "" {
+		return fmt.Errorf("AWS credentials are missing")
+	}
+	return nil
 }

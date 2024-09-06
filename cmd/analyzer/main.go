@@ -23,7 +23,7 @@ func main() {
 		log.Fatalf("Error creating analyzer: %v", err)
 	}
 
-	logger.Fatal("Analyzer Starting...")
+	logger.Println("Analyzer Starting...")
 
 	if err := a.Run(); err != nil {
 		logger.Fatalf("Error starting analyzer: %v", err)

@@ -1,54 +1,86 @@
 package collector
 
 import (
-	"encoding/json"
 	"fmt"
+	"time"
 	"io"
 	"net/http"
 	"net/url"
-	"time"
+	"encoding/json"
 
 	"wasabibucket/internal/common"
 	"wasabibucket/pkg/models"
 )
 
-const nvdAPIURL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
+type Collector struct {
+	config common.ConfigLoader
+	db     common.DatabaseConnector
+  logger common.Logger
+	sqs    common.SQSPublisher
+}
+
+func NewCollector(config common.ConfigLoader) (*Collector, error) {
+	dbInitializer := common.NewDatabaseInitializer()
+	db, err := dbInitializer.InitDatabase(config)
+	if err != nil {
+		return nil, err
+	}
+
+	loggerInitializer := common.NewLoggerInitializer()
+	logger, err := loggerInitializer.InitLogger("collector", config)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+
+	sqsInitializer := common.NewSQSPublisherInitializer()
+	sqs, err := sqsInitializer.InitSQSPublisher(config)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Collector{
+		config: config,
+		db:     db,
+		logger: logger,
+		sqs:    sqs,
+	}, nil
+}
 
 // Collect CVE data
-func Run(config *common.Config, db *common.Database, logger *common.Logger, startDate, endDate time.Time) error {
+func (c *Collector) Run(startDate, endDate time.Time) error {
+	nvdConfig:= c.config.GetNVDConfig()
+
 	startIndex := 0
 	totalResults := 0
 	updateResults := 0
 
-	sqsClient, err := common.NewSQSClient(config)
-	if err != nil {
-		return fmt.Errorf("error creating SQS publisher: %v", err)
-	}
+	c.logger.Printf("Fetching CVEs from %s to %s (GMT)\n", startDate.Format(time.RFC3339), endDate.Format(time.RFC3339))
 
 	for {
-		resp, err := fetchCVEData(config, startDate, endDate, startIndex)
+		resp, err := fetchCVEData(nvdConfig, startDate, endDate, startIndex)
 		if err != nil {
-			return fmt.Errorf("Error fetching CVE data: %v", err)
+			return fmt.Errorf("[fetchCVEData] %w", err) 
 		}
 
 		for _, vuln := range resp.Vulnerabilities {
-			changed, err := storeCVEData(db, vuln.Cve)
+			changed, err := storeCVEData(c.db, vuln.Cve)
 			if err != nil {
-				logger.Printf("Error storing CVE data: %v\n", err)
+				c.logger.Errorf("[storeCVEData] %v\n", err)
 				continue
 			}
 
 			if changed {
-				logger.Printf("Update CVE data to DB: %s\n", vuln.Cve.ID)
+				c.logger.Printf("Update CVE data to DB: %s\n", vuln.Cve.ID)
 
-				err = sqsClient.PublishCVEUpdate(vuln.Cve.ID)
+				err = c.sqs.SendMessage(vuln.Cve.ID)
 				if err != nil {
-					logger.Printf("Error publishing CVE update to SQS: %v\n", err)
+					c.logger.Errorf("[SendMessage] %v", err)
 				} else {
-					logger.Printf("Publish CVE update to SQS: %s\n", vuln.Cve.ID)
+					c.logger.Printf("Publish CVE update to SQS: %s", vuln.Cve.ID)
 				}
 
-				updateResults = updateResults + 1
+				updateResults++
 			}
 		}
 
@@ -62,12 +94,12 @@ func Run(config *common.Config, db *common.Database, logger *common.Logger, star
 		time.Sleep(6 * time.Second)
 	}
 
-	logger.Printf("Update CVEs : %d\n", updateResults)
-	logger.Printf("Total CVEs checked: %d\n", totalResults)
+	c.logger.Printf("Updated CVE : %d / %d\n", updateResults, totalResults)
+
 	return nil
 }
 
-func fetchCVEData(config *common.Config, startDate, endDate time.Time, startIndex int) (*models.NVDResponse, error) {
+func fetchCVEData(config common.NVDConfig, startDate, endDate time.Time, startIndex int) (*models.NVDResponse, error) {
 	client := &http.Client{Timeout: 10 * time.Second}
 
 	params := url.Values{}
@@ -76,12 +108,12 @@ func fetchCVEData(config *common.Config, startDate, endDate time.Time, startInde
 	params.Add("startIndex", fmt.Sprintf("%d", startIndex))
 	params.Add("resultsPerPage", "100")
 
-	req, err := http.NewRequest("GET", nvdAPIURL, nil)
+	req, err := http.NewRequest("GET", config.APIUrl, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	req.Header.Add("apiKey", config.NVDAPIKey)
+	req.Header.Add("apiKey", config.APIKey)
 	req.URL.RawQuery = params.Encode()
 
 	var resp *http.Response
@@ -104,7 +136,7 @@ func fetchCVEData(config *common.Config, startDate, endDate time.Time, startInde
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, err 
 	}
 
 	var nvdResp models.NVDResponse
@@ -114,4 +146,23 @@ func fetchCVEData(config *common.Config, startDate, endDate time.Time, startInde
 	}
 
 	return &nvdResp, nil
+}
+
+func (c *Collector) Close() error {
+	var errs []error
+
+	if err := c.db.Close(); err != nil {
+		errs = append(errs, fmt.Errorf("Failed to close database: %w", err))
+	}
+
+	if fileLogger, ok := c.logger.(*common.FileLogger); ok {
+		if err := fileLogger.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("Failed to close logger: %w", err))
+		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("Errors occurred while closing resources: %v", errs)
+	}
+	return nil
 }

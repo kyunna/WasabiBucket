@@ -6,17 +6,39 @@ import (
 	_ "github.com/lib/pq"
 )
 
-type Database struct {
+type DatabaseConnector interface {
+	Exec(query string, args ...interface{}) (sql.Result, error)
+	Query(query string, args ...interface{}) (*sql.Rows, error)
+	QueryRow(query string, args ...interface{}) *sql.Row
+	Close() error
+}
+
+type PostgresConnector struct {
 	*sql.DB
 }
 
-func InitDatabase(config *Config) (*Database, error) {
+func (pc *PostgresConnector) Close() error {
+	return pc.DB.Close()
+}
+
+type DatabaseInitializer interface {
+	InitDatabase(config ConfigLoader) (DatabaseConnector, error)
+}
+
+type PostgresInitializer struct{}
+
+func NewDatabaseInitializer() DatabaseInitializer {
+	return &PostgresInitializer{}
+}
+
+func (p *PostgresInitializer) InitDatabase(config ConfigLoader) (DatabaseConnector, error) {
+	dbConfig := config.GetDatabaseConfig()
 	connectionString := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=require",
-	config.DBConfig.Host, 
-	config.DBConfig.Port, 
-	config.DBConfig.User, 
-	config.DBConfig.Password, 
-	config.DBConfig.Name)
+		dbConfig.Host, 
+		dbConfig.Port, 
+		dbConfig.User, 
+		dbConfig.Password, 
+		dbConfig.Name)
 
 	db, err := sql.Open("postgres", connectionString)
 	if err != nil {
@@ -25,8 +47,9 @@ func InitDatabase(config *Config) (*Database, error) {
 
 	err = db.Ping()
 	if err != nil {
+		db.Close()
 		return nil, err
 	}
 
-	return &Database{db}, nil
+	return &PostgresConnector{db}, nil
 }
