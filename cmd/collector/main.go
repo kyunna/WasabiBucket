@@ -4,8 +4,8 @@ import (
 	"log"
 	"time"
 
-	"wasabibucket/internal/common"
 	"wasabibucket/internal/collector"
+	"wasabibucket/internal/common"
 )
 
 func main() {
@@ -22,7 +22,7 @@ func main() {
 	endDateGMT := endDate.UTC()
 
 
-	c, err := collector.NewCollector(config)
+	c, err := collector.New(config)
 	if err != nil {
 		log.Fatalf("Error creating collector: %v", err)
 	}

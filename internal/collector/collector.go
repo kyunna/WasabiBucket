@@ -19,7 +19,7 @@ type Collector struct {
 	sqs    common.SQSPublisher
 }
 
-func NewCollector(config common.ConfigLoader) (*Collector, error) {
+func New(config common.ConfigLoader) (*Collector, error) {
 	dbInitializer := common.NewDatabaseInitializer()
 	db, err := dbInitializer.InitDatabase(config)
 	if err != nil {
@@ -47,7 +47,6 @@ func NewCollector(config common.ConfigLoader) (*Collector, error) {
 	}, nil
 }
 
-// Collect CVE data
 func (c *Collector) Run(startDate, endDate time.Time) error {
 	nvdConfig:= c.config.GetNVDConfig()
 

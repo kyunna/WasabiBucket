@@ -1,31 +1,51 @@
 package main
 
 import (
+	"context"
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"wasabibucket/internal/analyzer"
 	"wasabibucket/internal/common"
 )
 
 func main() {
-	config, err := common.LoadConfig()
+	config := common.NewConfig()
+	err := config.Load()
 	if err != nil {
-		log.Fatalf("Error loading configuration: %v", err)
-	}
-
-	logger, err := common.InitLogger("analyzer", config)
-	if err != nil {
-		log.Fatalf("Error initializing logger: %v", err)
+		log.Fatalf("Failed to load configuration: %v", err)
 	}
 
 	a, err := analyzer.New(config)
 	if err != nil {
 		log.Fatalf("Error creating analyzer: %v", err)
 	}
+	defer a.Close()
 
-	logger.Println("Analyzer Starting...")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	if err := a.Run(); err != nil {
-		logger.Fatalf("Error starting analyzer: %v", err)
-	}
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		if err := a.Run(ctx, 2); err != nil {
+			log.Printf("Error from analyzer: %v", err)
+			cancel()
+		}
+	}()
+
+	<-sigChan
+	log.Println("Shutdown signal received, initiating graceful shutdown...")
+
+	cancel()
+
+	shutdownCtx, _ := context.WithTimeout(context.Background(), 30*time.Second)
+	<-shutdownCtx.Done()
+
+	log.Println("Shutdown complete")
+
 }

@@ -26,6 +26,19 @@ type NVDResponse struct {
 	TotalResults   int `json:"totalResults"`
 }
 
+type CVEResponse struct {
+	ID               string 
+	Description      string
+	CvssV3Vector     string
+	CvssV3BaseScore  float64 
+	CvssV3Severity   string
+	CvssV4Vector     string
+	CvssV4BaseScore  float64
+	CvssV4Severity   string
+	AffectedProducts []string
+	CWEIDs           []string
+}
+
 type CVEData struct {
 	ID               string     `json:"id"`
 	Published        CustomTime `json:"published"`

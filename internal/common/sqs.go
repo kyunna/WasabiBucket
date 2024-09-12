@@ -12,7 +12,7 @@ type SQSPublisher interface {
 }
 
 type SQSConsumer interface {
-    ReceiveMessage() (*sqs.Message, error)
+    ReceiveMessage(maxNumber int64, waitTime int64) ([]*sqs.Message, error)
     DeleteMessage(receiptHandle *string) error
 }
 
@@ -75,17 +75,17 @@ func (c *SQSClient) SendMessage(message string) error {
 	return err
 }
 
-func (c *SQSClient) ReceiveMessage() (*sqs.Message, error) {
+func (c *SQSClient) ReceiveMessage(maxNumber int64, waitTime int64) ([]*sqs.Message, error) {
 	result, err := c.svc.ReceiveMessage(&sqs.ReceiveMessageInput{
 		QueueUrl:            &c.queueURL,
-		MaxNumberOfMessages: aws.Int64(1),
-		WaitTimeSeconds:     aws.Int64(20),
+		MaxNumberOfMessages: aws.Int64(maxNumber),
+		WaitTimeSeconds:     aws.Int64(waitTime),
 	})
 	if err != nil {
 		return nil, err
 	}
 	if len(result.Messages) > 0 {
-		return result.Messages[0], nil
+		return result.Messages, nil
 	}
 	return nil, nil
 }
