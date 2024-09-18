@@ -3,16 +3,15 @@ package analyzer
 import (
 	"context"
 	"fmt"
-	"time"
-
 	"wasabibucket/internal/common"
 )
 
 type Analyzer struct {
-	config common.ConfigLoader
-	db     common.DatabaseConnector
-  logger common.Logger
-	sqs    common.SQSConsumer
+	config       common.ConfigLoader
+	db           common.DatabaseConnector
+	logger       common.Logger
+	sqs          common.SQSConsumer
+	openaiClient common.OpenAIClient
 }
 
 func New(config common.ConfigLoader) (*Analyzer, error) {
@@ -35,61 +34,23 @@ func New(config common.ConfigLoader) (*Analyzer, error) {
 		return nil, err
 	}
 
+	openaiInitializer := common.NewOpenAIClientInitializer()
+	openaiClient, err := openaiInitializer.InitOpenAIClient(config)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Analyzer{
-		config: config,
-		db:     db,
-		logger: logger,
-		sqs:    sqs,
+		config:       config,
+		db:           db,
+		logger:       logger,
+		sqs:          sqs,
+		openaiClient: openaiClient,
 	}, nil
 }
 
-// 메인 실행 루프, 컨텍스트를 사용한 전체 프로세스의 수명주기 관리
 func (a *Analyzer) Run(ctx context.Context, maxAnalyzer int64) error {
-	a.logger.Printf("SQS Message polling...")
-
-	const (
-		defaultInterval = 60 * time.Second
-		shortInterval   = 10 * time.Second
-		longPollingTimeout = 20 // SQS Long Polling timeout in seconds
-	)
-
-	ticker := time.NewTicker(shortInterval)
-	defer ticker.Stop()
-
-	for { 
-		select {
-		case <-ctx.Done():
-			a.logger.Printf("Shotdown signal received, stopping analyzer...")
-			return nil
-		case <-ticker.C:
-			messages, err := a.sqs.ReceiveMessage(maxAnalyzer, longPollingTimeout)
-			if err != nil {
-				a.logger.Errorf("Error processing SQS messages :%v", err)
-				continue
-			}
-
-			if len(messages) > 0 {
-				for _, message := range messages {
-					cveID := *message.Body
-					a.logger.Printf("Processing message with CVE ID: %s", cveID)
-
-					prompt, err := generatePrompt(a.db, cveID)
-
-					if err != nil {
-						fmt.Println("errrrrr")
-					}
-					fmt.Println(prompt)
-
-					// if err := a.sqs.DeleteMessage(message.ReceiptHandle); err != nil {
-					// 	a.logger.Errorf("Failed to delete SQS message (CVE ID: %s): %v", cveID, err)
-					// }
-				}
-				ticker.Reset(shortInterval)
-			} else {
-				ticker.Reset(defaultInterval)
-			}
-		}
-	}
+	return a.processMessages(ctx, maxAnalyzer)
 }
 
 func (a *Analyzer) Close() error {

@@ -14,13 +14,15 @@ type ConfigLoader interface {
 	GetNVDConfig() NVDConfig
 	GetDatabaseConfig() DatabaseConfig
 	GetSQSConfig() SQSConfig
+	GetGPTAPIKey() string
 }
 
 type Config struct {
-	Logger   LoggerConfig
-	NVD      NVDConfig
-	Database DatabaseConfig
-	SQS      SQSConfig
+	Logger    LoggerConfig
+	NVD       NVDConfig
+	Database  DatabaseConfig
+	SQS       SQSConfig
+	GPTAPIKey string
 }
 
 type LoggerConfig struct {
@@ -79,6 +81,7 @@ func (c *Config) Load() error {
 		Region:          getEnv("AWS_REGION", "us-west-2"),
 		QueueURL:        getEnv("SQS_QUEUE_URL", ""),
 	}
+	c.GPTAPIKey = getEnv("GPT_API_KEY", "")
 
 	if err := c.validate(); err != nil {
 		return fmt.Errorf("config validation failed: %w", err)
@@ -101,6 +104,10 @@ func (c *Config) GetDatabaseConfig() DatabaseConfig {
 
 func (c *Config) GetSQSConfig() SQSConfig {
 	return c.SQS
+}
+
+func (c *Config) GetGPTAPIKey() string {
+	return c.GPTAPIKey
 }
 
 func getEnv(key, fallback string) string {
@@ -130,6 +137,9 @@ func (c *Config) validate() error {
 	}
 	if c.SQS.AccessKey == "" || c.SQS.SecretAccessKey == "" {
 		return fmt.Errorf("AWS credentials are missing")
+	}
+	if c.GPTAPIKey == "" {
+		return fmt.Errorf("GPT API Key is required")
 	}
 	return nil
 }
