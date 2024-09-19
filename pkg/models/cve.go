@@ -31,10 +31,10 @@ type CVEResponse struct {
 	Description      string
 	CvssV3Vector     string
 	CvssV3BaseScore  float64 
-	CvssV3Severity   string
+	CvssV3BaseSeverity   string
 	CvssV4Vector     string
 	CvssV4BaseScore  float64
-	CvssV4Severity   string
+	CvssV4BaseSeverity   string
 	AffectedProducts []string
 	CWEIDs           []string
 }

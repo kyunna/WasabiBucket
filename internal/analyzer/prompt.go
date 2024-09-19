@@ -33,10 +33,10 @@ func generatePrompt(db common.DatabaseConnector, cveID string) (string, error) {
 		&cve.Description,
 		&cve.CvssV3Vector,
 		&cve.CvssV3BaseScore,
-		&cve.CvssV3Severity,
+		&cve.CvssV3BaseSeverity,
 		&cve.CvssV4Vector,
 		&cve.CvssV4BaseScore,
-		&cve.CvssV4Severity,
+		&cve.CvssV4BaseSeverity,
 		&affectedProducts,
 		&cweIDs,
 	)
@@ -51,12 +51,12 @@ func generatePrompt(db common.DatabaseConnector, cveID string) (string, error) {
 		cvssInfo = fmt.Sprintf(`
 		CVSS V3 Vector: %s
 		CVSS V3 Score: %.1f
-		CVSS V3 Severity: %s`, cve.CvssV3Vector, cve.CvssV3BaseScore, cve.CvssV3Severity)
+		CVSS V3 Severity: %s`, cve.CvssV3Vector, cve.CvssV3BaseScore, cve.CvssV3BaseSeverity)
 	} else if cve.CvssV4Vector != "" || cve.CvssV4BaseScore > 0 {
 		cvssInfo = fmt.Sprintf(`
 		CVSS V4 Vector: %s
 		CVSS V4 Score: %.1f
-		CVSS V4 Severity: %s`, cve.CvssV4Vector, cve.CvssV4BaseScore, cve.CvssV4Severity)
+		CVSS V4 Severity: %s`, cve.CvssV4Vector, cve.CvssV4BaseScore, cve.CvssV4BaseSeverity)
 	} else {
 		cvssInfo = "No CVSS information available"
 	}
