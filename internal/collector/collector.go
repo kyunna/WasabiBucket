@@ -84,7 +84,7 @@ func (c *Collector) Run(ctx context.Context) error {
 			return nil
 		case <-ticker.C:
 			endDate := time.Now().UTC()
-			startDate := endDate.AddDate(0, 0, -36)
+			startDate := endDate.AddDate(0, 0, -30)
 
 			nvdConfig := c.config.GetNVDConfig()
 
@@ -95,6 +95,10 @@ func (c *Collector) Run(ctx context.Context) error {
 			c.logger.Printf("Fetching CVEs from %s to %s (UTC)\n", startDate.Format(time.RFC3339), endDate.Format(time.RFC3339))
 
 			for {
+				if totalResults > 0 {
+					c.logger.Printf("Search Index : %d / %d", startIndex, totalResults)
+				}
+								
 				resp, err := fetchCVEData(nvdConfig, startDate, endDate, startIndex)
 				if err != nil {
 					c.logger.Errorf("[fetchCVEData] %v", err)
