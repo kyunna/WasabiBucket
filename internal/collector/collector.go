@@ -118,8 +118,8 @@ func (c *Collector) Run(ctx context.Context) error {
 							} else {
 								c.logger.Printf("Publish CVE update to SQS: %s", vuln.Cve.ID)
 							}
-							updateResults++
 						}
+						updateResults++
 					}
 				}
 
