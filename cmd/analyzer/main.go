@@ -43,7 +43,7 @@ func main() {
 
 	cancel()
 
-	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 30*time.Second)
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 30 * time.Second)
 	defer cancelShutdown()
 	<-shutdownCtx.Done()
 

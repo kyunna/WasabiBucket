@@ -1,6 +1,11 @@
 package models
 
-import "time"
+import (
+	"time"
+	"encoding/json"
+	"database/sql/driver"
+	_ "github.com/lib/pq"
+)
 
 type CustomTime struct {
 	time.Time
@@ -78,4 +83,29 @@ type CVSSData struct {
 	VectorString string  `json:"vectorString"`
 	BaseScore    float64 `json:"baseScore"`
 	BaseSeverity string  `json:"baseSeverity"`
+}
+
+type AIAnalysis struct {
+	AnalysisSummary   string   `json:"analysis_summary"`
+	AffectedSystems   string   `json:"affected_systems"`
+	AffectedProducts  []string `json:"affected_products"`
+	VulnerabilityType string   `json:"vulnerability_type"`
+	PotentialImpact   string   `json:"potential_impact"`
+	RiskLevel         int      `json:"risk_level"`
+	Recommendation    string   `json:"recommendation"`
+}
+
+// StringArray는 문자열 배열을 PostgreSQL의 text[]로 저장하기 위한 타입입니다.
+type StringArray []string
+
+func (a StringArray) Value() (driver.Value, error) {
+	return json.Marshal(a)
+}
+
+func (a *StringArray) Scan(value interface{}) error {
+	b, ok := value.([]byte)
+	if !ok {
+		return json.Unmarshal([]byte(value.(string)), &a)
+	}
+	return json.Unmarshal(b, &a)
 }
