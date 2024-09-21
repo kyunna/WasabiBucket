@@ -1,16 +1,17 @@
 package collector
 
 import (
-	"fmt"
 	"context"
-	"time"
+	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
-	"encoding/json"
+	"time"
 
 	"wasabibucket/internal/common"
 	"wasabibucket/internal/models"
+
 	"github.com/lib/pq"
 )
 
@@ -68,14 +69,17 @@ func (c *Collector) Close() error {
 	return nil
 }
 
-func (c *Collector) Run(ctx context.Context) error {
-	const (
-		defaultInterval	= 1 * time.Hour
-		shortInterval	= 10 * time.Second
-	)
+func (c *Collector) Run(ctx context.Context, interval int) error {
+	c.logger.Printf("Start collector with interval %d hours\n", interval)
 
-	ticker := time.NewTicker(shortInterval)
+	defaultInterval := time.Duration(interval) * time.Hour
+
+	const firstInterval = 10 * time.Second
+
+	ticker := time.NewTicker(firstInterval)
 	defer ticker.Stop()
+
+	firstRun := true
 
 	for {
 		select {
@@ -83,8 +87,23 @@ func (c *Collector) Run(ctx context.Context) error {
 			c.logger.Printf("Shutdown signal received, stopping collector...")
 			return nil
 		case <-ticker.C:
+			if firstRun {
+				ticker.Reset(defaultInterval)
+				firstRun = false
+			}
+
+			// Manual date range for data collection
+			// manualStartDate := time.Date(2024, 9, 1, 0, 0, 0, 0, time.UTC)
+			// manualEndDate := time.Date(2024, 10, 1, 0, 0, 0, 0, time.UTC)
+			// Use manual dates
+			// startDate := manualStartDate
+			// endDate := manualEndDate
+
+			// c.logger.Printf("Using manual date range for data collection")
+
+			// Comment out the automatic date calculation
 			endDate := time.Now().UTC()
-			startDate := endDate.AddDate(0, 0, -30)
+			startDate := endDate.AddDate(0, 0, -60)
 
 			nvdConfig := c.config.GetNVDConfig()
 
@@ -98,7 +117,7 @@ func (c *Collector) Run(ctx context.Context) error {
 				if totalResults > 0 {
 					c.logger.Printf("Search Index : %d / %d", startIndex, totalResults)
 				}
-								
+
 				resp, err := fetchCVEData(nvdConfig, startDate, endDate, startIndex)
 				if err != nil {
 					c.logger.Errorf("[fetchCVEData] %v", err)
@@ -137,13 +156,8 @@ func (c *Collector) Run(ctx context.Context) error {
 				time.Sleep(6 * time.Second)
 			}
 
+			c.logger.Printf("Fetching CVEs from %s to %s (UTC) is completed\n", startDate.Format(time.RFC3339), endDate.Format(time.RFC3339))
 			c.logger.Printf("Updated CVE : %d / %d\n", updateResults, totalResults)
-
-			if updateResults > 0 {
-				ticker.Reset(shortInterval)
-			} else {
-				ticker.Reset(defaultInterval)
-			}
 		}
 	}
 }
@@ -155,7 +169,7 @@ func fetchCVEData(config common.NVDConfig, startDate, endDate time.Time, startIn
 	params.Add("pubStartDate", startDate.Format(time.RFC3339))
 	params.Add("pubEndDate", endDate.Format(time.RFC3339))
 	params.Add("startIndex", fmt.Sprintf("%d", startIndex))
-	params.Add("resultsPerPage", "100")
+	params.Add("resultsPerPage", "500")
 
 	req, err := http.NewRequest("GET", config.APIUrl, nil)
 	if err != nil {
@@ -185,7 +199,7 @@ func fetchCVEData(config common.NVDConfig, startDate, endDate time.Time, startIn
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("[ReadAll] %v", err) 
+		return nil, fmt.Errorf("[ReadAll] %v", err)
 	}
 
 	var nvdResp models.NVDResponse
@@ -263,16 +277,16 @@ func storeCVEData(db common.DatabaseConnector, cve models.CVEData) (bool, error)
 		(updated_at = CURRENT_TIMESTAMP) AS updated
 	)
 	SELECT 
-	(inserted OR updated) AS changed
+		(inserted OR updated) AS changed
 	FROM upsert
 	`
 
 	var changed bool
 	err := db.QueryRow(query,
-	cve.ID, cve.Published.Time, cve.LastModified.Time, cve.VulnStatus, getDescription(cve),
-	getCVSSV3Vector(cve), getCVSSV3BaseScore(cve), getCVSSV3BaseSeverity(cve),
-	getCVSSV4Vector(cve), getCVSSV4BaseScore(cve), getCVSSV4BaseSeverity(cve),
-	pq.Array(getAffectedProducts(cve)), pq.Array(getReferenceLinks(cve)), pq.Array(getCWEIDs(cve)),
+		cve.ID, cve.Published.Time, cve.LastModified.Time, cve.VulnStatus, getDescription(cve),
+		getCVSSV3Vector(cve), getCVSSV3BaseScore(cve), getCVSSV3BaseSeverity(cve),
+		getCVSSV4Vector(cve), getCVSSV4BaseScore(cve), getCVSSV4BaseSeverity(cve),
+		pq.Array(getAffectedProducts(cve)), pq.Array(getReferenceLinks(cve)), pq.Array(getCWEIDs(cve)),
 	).Scan(&changed)
 
 	if err != nil {

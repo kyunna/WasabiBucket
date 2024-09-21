@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -13,8 +15,26 @@ import (
 )
 
 func main() {
+	if len(os.Args) < 2 {
+		log.Fatalf("Usage: %s <interval>", os.Args[0])
+	}
+
+	interval, err := strconv.Atoi(os.Args[1])
+	if err != nil || interval < 1 || interval > 24 {
+		log.Fatalf("Interval must be a number between 1 and 24")
+	}
+
+	// Write PID to file
+	pid := os.Getpid()
+	pidFile := "./collector.pid"
+	err = os.WriteFile(pidFile, []byte(fmt.Sprintf("%d", pid)), 0644)
+	if err != nil {
+		log.Fatalf("Failed to write PID to file: %v", err)
+	}
+	defer os.Remove(pidFile) // Clean up PID file on exit
+
 	config := common.NewConfig()
-	err := config.Load()
+	err = config.Load()
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
@@ -32,7 +52,7 @@ func main() {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
-		if err := c.Run(ctx); err != nil {
+		if err := c.Run(ctx, interval); err != nil {
 			log.Printf("Error from collector: %v", err)
 			cancel()
 		}
@@ -43,7 +63,7 @@ func main() {
 
 	cancel()
 
-	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 30 * time.Second)
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancelShutdown()
 	<-shutdownCtx.Done()
 

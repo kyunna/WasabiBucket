@@ -1,1 +1,1 @@
-go run ./cmd/collector/main.go
+go run ./cmd/collector/main.go 6
