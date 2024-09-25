@@ -109,13 +109,16 @@ func (c *Collector) Run(ctx context.Context, interval int) error {
 
 			startIndex := 0
 			totalResults := 0
+			publishResults := 0
 			updateResults := 0
 
-			c.logger.Printf("Fetching CVEs from %s to %s (UTC)\n", startDate.Format(time.RFC3339), endDate.Format(time.RFC3339))
+			c.logger.Printf("Start Fetching : %s to %s (UTC)\n", startDate.Format(time.RFC3339), endDate.Format(time.RFC3339))
 
 			for {
 				if totalResults > 0 {
-					c.logger.Printf("Search Index : %d / %d", startIndex, totalResults)
+					c.logger.Printf("Search Index: %d / %d", startIndex, totalResults)
+				} else {
+					c.logger.Print("Search Index: 0")
 				}
 
 				resp, err := fetchCVEData(nvdConfig, startDate, endDate, startIndex)
@@ -140,6 +143,7 @@ func (c *Collector) Run(ctx context.Context, interval int) error {
 								c.logger.Errorf("[SendMessage] %v", err)
 							} else {
 								c.logger.Printf("Publish CVE update to SQS: %s", vuln.Cve.ID)
+								publishResults++
 							}
 						}
 						updateResults++
@@ -156,8 +160,8 @@ func (c *Collector) Run(ctx context.Context, interval int) error {
 				time.Sleep(6 * time.Second)
 			}
 
-			c.logger.Printf("Fetching CVEs from %s to %s (UTC) is completed\n", startDate.Format(time.RFC3339), endDate.Format(time.RFC3339))
-			c.logger.Printf("Updated CVE : %d / %d\n", updateResults, totalResults)
+			c.logger.Printf("End Fetching : %s to %s (UTC)\n", startDate.Format(time.RFC3339), endDate.Format(time.RFC3339))
+			c.logger.Printf("Updated (published) CVE : %d (%d) / %d\n", updateResults, publishResults, totalResults)
 		}
 	}
 }

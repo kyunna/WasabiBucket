@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -13,8 +14,17 @@ import (
 )
 
 func main() {
+	// Write PID to file
+	pid := os.Getpid()
+	pidFile := "./analyzer.pid"
+	err := os.WriteFile(pidFile, []byte(fmt.Sprintf("%d", pid)), 0644)
+	if err != nil {
+		log.Fatalf("Failed to write PID to file: %v", err)
+	}
+	defer os.Remove(pidFile) // Clean up PID file on exit
+
 	config := common.NewConfig()
-	err := config.Load()
+	err = config.Load()
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}

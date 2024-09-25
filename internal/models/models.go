@@ -1,9 +1,10 @@
 package models
 
 import (
-	"time"
-	"encoding/json"
 	"database/sql/driver"
+	"encoding/json"
+	"time"
+
 	_ "github.com/lib/pq"
 )
 
@@ -32,24 +33,24 @@ type NVDResponse struct {
 }
 
 type CVEResponse struct {
-	ID               string 
-	Description      string
-	CvssV3Vector     string
-	CvssV3BaseScore  float64 
-	CvssV3BaseSeverity   string
-	CvssV4Vector     string
-	CvssV4BaseScore  float64
-	CvssV4BaseSeverity   string
-	AffectedProducts []string
-	CWEIDs           []string
+	ID                 string
+	Description        string
+	CvssV3Vector       string
+	CvssV3BaseScore    float64
+	CvssV3BaseSeverity string
+	CvssV4Vector       string
+	CvssV4BaseScore    float64
+	CvssV4BaseSeverity string
+	AffectedProducts   []string
+	CWEIDs             []string
 }
 
 type CVEData struct {
-	ID               string     `json:"id"`
-	Published        CustomTime `json:"published"`
-	LastModified     CustomTime `json:"lastModified"`
-	VulnStatus       string     `json:"vulnStatus"`
-	Descriptions     []struct {
+	ID           string     `json:"id"`
+	Published    CustomTime `json:"published"`
+	LastModified CustomTime `json:"lastModified"`
+	VulnStatus   string     `json:"vulnStatus"`
+	Descriptions []struct {
 		Lang  string `json:"lang"`
 		Value string `json:"value"`
 	} `json:"descriptions"`
@@ -90,9 +91,9 @@ type AIAnalysis struct {
 	AffectedSystems   string   `json:"affected_systems"`
 	AffectedProducts  []string `json:"affected_products"`
 	VulnerabilityType string   `json:"vulnerability_type"`
-	PotentialImpact   string   `json:"potential_impact"`
 	RiskLevel         int      `json:"risk_level"`
 	Recommendation    string   `json:"recommendation"`
+	TechnicalDetails  string   `json:"technical_details"`
 }
 
 // StringArray는 문자열 배열을 PostgreSQL의 text[]로 저장하기 위한 타입입니다.

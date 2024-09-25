@@ -1,17 +1,18 @@
 package analyzer
 
 import (
-	"fmt"
 	"context"
-	"time"
-	"strings"
+	"database/sql"
 	"encoding/json"
+	"fmt"
+	"strings"
+	"time"
 
 	"wasabibucket/internal/common"
 	"wasabibucket/internal/models"
 
-	"github.com/sashabaranov/go-openai"
 	"github.com/lib/pq"
+	"github.com/sashabaranov/go-openai"
 )
 
 type Analyzer struct {
@@ -76,8 +77,9 @@ func (a *Analyzer) Close() error {
 	return nil
 }
 
-
 func (a *Analyzer) Run(ctx context.Context, maxAnalyzer int64) error {
+	a.logger.Printf("Start analyzer\n")
+
 	const (
 		defaultInterval    = 60 * time.Second
 		shortInterval      = 10 * time.Second
@@ -106,7 +108,16 @@ func (a *Analyzer) Run(ctx context.Context, maxAnalyzer int64) error {
 
 					prompt, err := generatePrompt(a.db, cveID)
 					if err != nil {
-						a.logger.Errorf("Failed to generate prompt for CVE ID %s: %v", cveID, err)
+						if err == sql.ErrNoRows {
+							a.logger.Printf("No data found for %s from CVE Data", cveID)
+							if err := a.sqs.DeleteMessage(message.ReceiptHandle); err != nil {
+								a.logger.Errorf("Failed to delete SQS message for non-existent %s: %v", cveID, err)
+							} else {
+								a.logger.Printf("Delete SQS message for non-existent %s", cveID)
+							}
+							continue
+						}
+						a.logger.Errorf("Failed to generate prompt for %s: %v", cveID, err)
 						continue
 					}
 
@@ -115,27 +126,27 @@ func (a *Analyzer) Run(ctx context.Context, maxAnalyzer int64) error {
 
 					analysis, err := analyzeWithChatGPT(a.openaiClient, analysisCtx, prompt)
 					if err != nil {
-						a.logger.Errorf("Failed to analyze CVE ID %s with ChatGPT: %v", cveID, err)
+						a.logger.Errorf("Failed to analyze %s with ChatGPT: %v", cveID, err)
 						continue
 					}
 
 					parsedAnalysis, err := parseResponse(analysis)
 					if err != nil {
-						a.logger.Errorf("Failed to parse AI response for CVE ID %s: %v", cveID, err)
+						a.logger.Errorf("Failed to parse AI response for %s: %v", cveID, err)
 						continue
 					}
 
 					a.logger.Printf("Complete analyzing %s", cveID)
 
 					if err := storeAnalysisResult(a.db, cveID, parsedAnalysis); err != nil {
-						a.logger.Errorf("Failed to store analysis result for CVE ID %s: %v", cveID, err)
+						a.logger.Errorf("Failed to store analysis result for %s: %v", cveID, err)
 						continue
 					}
 
 					a.logger.Printf("Update analysis data to DB: %s", cveID)
 
 					if err := a.sqs.DeleteMessage(message.ReceiptHandle); err != nil {
-						a.logger.Errorf("Failed to delete SQS message (CVE ID: %s): %v", cveID, err)
+						a.logger.Errorf("Failed to delete SQS message (%s): %v", cveID, err)
 					}
 				}
 				ticker.Reset(shortInterval)
@@ -206,19 +217,26 @@ func generatePrompt(db common.DatabaseConnector, cveID string) (string, error) {
 	}
 
 	prompt := fmt.Sprintf(`
-	As a cybersecurity expert, analyze the vulnerability %s based on the provided information. Respond in JSON format with the following structure:
+	As a cybersecurity expert, analyze vulnerability %s based on the provided information. Respond in JSON format:
 
 	{
-	"analysis_summary": "A concise summary of the vulnerability and its implications (max 5 sentences).",
-	"affected_systems": "Brief concise description of systems or software affected, based on the affected products information.",
+	"analysis_summary": "Comprehensive analysis considering CVSS score, affected systems, and vulnerability type. (Max 5 sentences)",
+	"affected_systems": "Brief description of impacted systems/software",
 	"affected_products": ["List", "of", "affected", "product", "names"],
-	"vulnerability_type": "The category or type of the vulnerability in English (e.g., buffer overflow, SQL injection, cross-site scripting).",
-	"potential_impact": "Description of potential consequences if exploited (1-2 sentences).",
-	"risk_level": 0, // 0 for low, 1 for medium, 2 for high, based on CVSS score and severity
-	"recommendation": "Suggested actions to mitigate or address the vulnerability (1-2 sentences)."
+	"vulnerability_type": "Category or type of vulnerability in English",
+	"risk_level": 0, // 0: Low, 1: Medium, 2: High, based on CVSS score and severity
+	"recommendation": "Specific actions to mitigate or address the vulnerability (2-3 sentences)",
+	"technical_details": "Technical specifics, attack vectors, and potential impact if exploited (3-4 sentences)"
 	}
 
-	Ensure your response is comprehensive yet concise, integrating all relevant details from the provided information. For the "affected_products" field, provide only the names of the affected products or software, without versions or additional details. The "vulnerability_type" must be in English, using standard cybersecurity terminology. The "affected_systems" should be a brief, concise description without full sentences.
+	Guidelines:
+	1. Integrate all provided data (CVSS score, affected products, CWE IDs) for a professional analysis.
+	2. 'analysis_summary': Include vulnerability significance, potential impact, and technical characteristics.
+	3. 'technical_details': Be specific and technical. Include potential impact and attack vectors. Do not mention the CVE ID in this field.
+	4. 'recommendation': Provide actionable and concrete measures.
+	5. 'vulnerability_type': Use standard cybersecurity terms in English.
+	6. 'affected_systems': Concise, doesn't require full sentences.
+	7. For all fields except 'analysis_summary', avoid mentioning the CVE ID directly.
 
 	Description: %s
 
@@ -227,7 +245,7 @@ func generatePrompt(db common.DatabaseConnector, cveID string) (string, error) {
 	%s
 	CWE IDs: %s
 
-	Provide the response in valid JSON format and in Korean, except for the "vulnerability_type" which should be in English.
+	Provide a valid JSON response. Use Korean for all fields except 'vulnerability_type'.
 	`,
 		cve.ID,
 		cve.Description,
@@ -266,7 +284,7 @@ func parseResponse(response string) (*models.AIAnalysis, error) {
 	if startIndex == -1 {
 		return nil, fmt.Errorf("JSON 시작 태그를 찾을 수 없습니다")
 	}
-	
+
 	// JSON 내용 추출
 	jsonContent := response[startIndex+7:]
 	endIndex := strings.Index(jsonContent, "```")
@@ -274,7 +292,7 @@ func parseResponse(response string) (*models.AIAnalysis, error) {
 		return nil, fmt.Errorf("JSON 종료 태그를 찾을 수 없습니다")
 	}
 	jsonContent = jsonContent[:endIndex]
-	
+
 	// 추출된 JSON 파싱
 	var analysis models.AIAnalysis
 	err := json.Unmarshal([]byte(jsonContent), &analysis)
@@ -283,40 +301,41 @@ func parseResponse(response string) (*models.AIAnalysis, error) {
 	}
 
 	// 파싱된 데이터 출력
-	fmt.Printf("Analysis Summary: %s\n", analysis.AnalysisSummary)
-	fmt.Printf("Affected Systems: %s\n", analysis.AffectedSystems)
-	fmt.Printf("Affected Products: %v\n", analysis.AffectedProducts)
-	fmt.Printf("Vulnerability Type: %s\n", analysis.VulnerabilityType)
-	fmt.Printf("Potential Impact: %s\n", analysis.PotentialImpact)
-	fmt.Printf("Risk Level: %d\n", analysis.RiskLevel)
-	fmt.Printf("Recommendation: %s\n", analysis.Recommendation)
+	// fmt.Printf("Analysis Summary: %s\n", analysis.AnalysisSummary)
+	// fmt.Printf("Affected Systems: %s\n", analysis.AffectedSystems)
+	// fmt.Printf("Affected Products: %v\n", analysis.AffectedProducts)
+	// fmt.Printf("Vulnerability Type: %s\n", analysis.VulnerabilityType)
+	// fmt.Printf("Risk Level: %d\n", analysis.RiskLevel)
+	// fmt.Printf("Recommendation: %s\n", analysis.Recommendation)
+	// fmt.Printf("Technical Details: %s\n", analysis.TechnicalDetails)
 
 	return &analysis, nil
 }
 
 func storeAnalysisResult(db common.DatabaseConnector, cveID string, analysis *models.AIAnalysis) error {
-    query := `
+	query := `
         INSERT INTO analysis_data (
             cve_id, analysis_summary, affected_systems, affected_products, 
-            vulnerability_type, potential_impact, risk_level, recommendation, 
-            created_at, updated_at
+            vulnerability_type, risk_level, recommendation, 
+            technical_details, created_at, updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         ON CONFLICT (cve_id) DO UPDATE SET
             analysis_summary = EXCLUDED.analysis_summary,
             affected_systems = EXCLUDED.affected_systems,
             affected_products = EXCLUDED.affected_products,
             vulnerability_type = EXCLUDED.vulnerability_type,
-            potential_impact = EXCLUDED.potential_impact,
             risk_level = EXCLUDED.risk_level,
             recommendation = EXCLUDED.recommendation,
-            updated_at = EXCLUDED.updated_at
+            technical_details = EXCLUDED.technical_details,
+            updated_at = CURRENT_TIMESTAMP
     `
-    _, err := db.Exec(query, cveID, analysis.AnalysisSummary, analysis.AffectedSystems,
-        pq.Array(analysis.AffectedProducts), analysis.VulnerabilityType,
-        analysis.PotentialImpact, analysis.RiskLevel, analysis.Recommendation, time.Now())
-    if err != nil {
-        return fmt.Errorf("Failed to store analysis result: %w", err)
-    }
-    return nil
+	_, err := db.Exec(query, cveID, analysis.AnalysisSummary, analysis.AffectedSystems,
+		pq.Array(analysis.AffectedProducts), analysis.VulnerabilityType,
+		analysis.RiskLevel, analysis.Recommendation,
+		analysis.TechnicalDetails)
+	if err != nil {
+		return fmt.Errorf("Failed to store analysis result: %w", err)
+	}
+	return nil
 }
