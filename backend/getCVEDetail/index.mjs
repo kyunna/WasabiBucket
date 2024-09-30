@@ -51,7 +51,7 @@ export const handler = async (event, context) => {
         a.risk_level,
         a.vulnerability_type,
         a.affected_systems,
-        a.affected_products,
+        a.affected_products AS analysis_affected_products,
         a.technical_details,
         a.created_at,
         a.updated_at,
@@ -65,7 +65,7 @@ export const handler = async (event, context) => {
         c.cvss_v4_vector,
         c.cvss_v4_base_score,
         c.cvss_v4_base_severity,
-        c.affected_products,
+        c.affected_products AS cve_affected_products,
         c.reference_links,
         c.cwe_ids
       FROM 
@@ -91,7 +91,7 @@ export const handler = async (event, context) => {
     return {
       statusCode: 200,
       body: JSON.stringify({
-        data: dataResult.rows[0],
+        result: dataResult.rows[0],
       }),
       headers: { 'Content-Type': 'application/json' }
     };

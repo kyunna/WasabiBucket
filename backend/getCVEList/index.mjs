@@ -40,6 +40,7 @@ export const handler = async (event, context) => {
     const dataQuery = `
       SELECT 
         c.cve_id, 
+        c.published_date,
         c.last_modified_date,
         c.vulnerability_status, 
         c.updated_at AS cve_updated_at,

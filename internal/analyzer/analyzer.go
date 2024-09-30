@@ -221,8 +221,8 @@ func generatePrompt(db common.DatabaseConnector, cveID string) (string, error) {
 
 	{
 	"analysis_summary": "Comprehensive analysis considering CVSS score, affected systems, and vulnerability type. (Max 5 sentences)",
-	"affected_systems": "Brief description of impacted systems/software",
-	"affected_products": ["List", "of", "affected", "product", "names"],
+	"affected_systems": "Brief description of impacted systems/software based on the CVE description (e.g., 'Linux kernel-based systems', 'WordPress plugin WPFactory Helper', 'Draytek Vigor 3910 router')",
+	"affected_products": ["List", "of", "specific", "affected", "product", "names", "based", "on", "CPE", "information"],
 	"vulnerability_type": "Category or type of vulnerability in English",
 	"risk_level": 0, // 0: Low, 1: Medium, 2: High, based on CVSS score and severity
 	"recommendation": "Specific actions to mitigate or address the vulnerability (2-3 sentences)",
@@ -232,11 +232,12 @@ func generatePrompt(db common.DatabaseConnector, cveID string) (string, error) {
 	Guidelines:
 	1. Integrate all provided data (CVSS score, affected products, CWE IDs) for a professional analysis.
 	2. 'analysis_summary': Include vulnerability significance, potential impact, and technical characteristics.
-	3. 'technical_details': Be specific and technical. Include potential impact and attack vectors. Do not mention the CVE ID in this field.
-	4. 'recommendation': Provide actionable and concrete measures.
-	5. 'vulnerability_type': Use standard cybersecurity terms in English.
-	6. 'affected_systems': Concise, doesn't require full sentences.
-	7. For all fields except 'analysis_summary', avoid mentioning the CVE ID directly.
+	3. 'affected_systems': Describe the types of systems or software affected, based on the CVE description.
+	4. 'affected_products': List specific product names affected, based on the CPE information provided.
+	5. 'technical_details': Be specific and technical. Include potential impact and attack vectors. Do not mention the CVE ID in this field.
+	6. 'recommendation': Provide actionable and concrete measures.
+	7. 'vulnerability_type': Use standard cybersecurity terms in English.
+	8. For all fields except 'analysis_summary', avoid mentioning the CVE ID directly.
 
 	Description: %s
 
@@ -245,7 +246,7 @@ func generatePrompt(db common.DatabaseConnector, cveID string) (string, error) {
 	%s
 	CWE IDs: %s
 
-	Provide a valid JSON response. Use Korean for all fields except 'vulnerability_type'.
+	Provide a valid JSON response. Use Korean for all fields except 'vulnerability_type' and 'affected_products'.
 	`,
 		cve.ID,
 		cve.Description,
