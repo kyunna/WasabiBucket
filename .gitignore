@@ -35,8 +35,6 @@ go.work.sum
 frontend/node_modules
 frontend/dist
 frontend/build
-frontend/public/assets
-frontend/src/assets
 
 node_modules
 /dist
