@@ -1,19 +1,13 @@
 <template>
   <div id="app">
-    <CVEList />
+    <router-view></router-view>
   </div>
 </template>
 
 <script>
-import { defineComponent } from 'vue';
-import CVEList from './components/CVEList.vue';
-
-export default defineComponent({
-  name: 'App',
-  components: {
-    CVEList
-  }
-});
+export default {
+  name: 'App'
+}
 </script>
 
 <style>

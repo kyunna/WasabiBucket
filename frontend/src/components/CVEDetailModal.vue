@@ -1,126 +1,60 @@
 <template>
-  <div v-if="show" class="modal-overlay" @click="closeModal">
-    <div class="modal-content" @click.stop>
-      <div class="modal-header">
-        <h2>{{ cveDetail ? `${cveDetail.cve_id} 상세 정보` : 'CVE 상세 정보' }}</h2>
-        <button class="close-button" @click="closeModal">&times;</button>
-      </div>
-      <div v-if="cveDetail" class="modal-body">
-        <section>
-          <h3>분석 내용</h3>
-          <table class="unified-table">
-            <colgroup>
-              <col style="width: 16.66%;">
-              <col style="width: 16.66%;">
-              <col style="width: 16.66%;">
-              <col style="width: 16.66%;">
-              <col style="width: 16.66%;">
-              <col style="width: 16.66%;">
-            </colgroup>
-            <tr>
-              <th>CVE ID</th>
-              <td>{{ cveDetail.cve_id }}</td>
-              <th>위험도</th>
-              <td>
-                <img :src="getRiskLevelIcon(cveDetail.risk_level)" :alt="getRiskLevel(cveDetail.risk_level)" class="risk-icon">
-                {{ getRiskLevel(cveDetail.risk_level) }}
-              </td>
-              <th>취약점 분류</th>
-              <td>{{ cveDetail.vulnerability_type || '-' }}</td>
-            </tr>
-            <tr>
-              <th>최초 분석일</th>
-              <td colspan="2">{{ formatDate(cveDetail.created_at) }}</td>
-              <th>최종 수정일</th>
-              <td colspan="2">{{ formatDate(cveDetail.updated_at) }}</td>
-            </tr>
-            <tr>
-              <th>영향받는 시스템</th>
-              <td colspan="5">{{ cveDetail.affected_systems || '-' }}</td>
-            </tr>
-            <tr>
-              <th>영향받는 제품</th>
-              <td colspan="5">{{ formatAffectedProducts(cveDetail.analysis_affected_products) }}</td>
-            </tr>
-            <tr>
-              <th>분석 요약</th>
-              <td colspan="5">{{ cveDetail.analysis_summary || '-' }}</td>
-            </tr>
-            <tr>
-              <th>권장사항</th>
-              <td colspan="5">{{ cveDetail.recommendation || '-' }}</td>
-            </tr>
-            <tr>
-              <th>기술적 세부사항</th>
-              <td colspan="5">{{ cveDetail.technical_details || '-' }}</td>
-            </tr>
-          </table>
-        </section>
-
-        <section>
-          <h3>CVE 정보</h3>
-          <table class="unified-table">
-            <colgroup>
-              <col style="width: 16.66%;">
-              <col style="width: 16.66%;">
-              <col style="width: 16.66%;">
-              <col style="width: 16.66%;">
-              <col style="width: 16.66%;">
-              <col style="width: 16.66%;">
-            </colgroup>
-            <tr>
-              <th>발행일</th>
-              <td>{{ formatDate(cveDetail.published_date) }}</td>
-              <th>최종 수정일</th>
-              <td>{{ formatDate(cveDetail.last_modified_date) }}</td>
-              <th>취약점 상태</th>
-              <td>{{ cveDetail.vulnerability_status || '-' }}</td>
-            </tr>
-            <tr>
-              <th>설명(영문)</th>
-              <td colspan="5">{{ cveDetail.description }}</td>
-            </tr>
-            <tr>
-              <th>CVSS v3 Vector</th>
-              <td colspan="5">{{ cveDetail.cvss_v3_vector || '-' }}</td>
-            </tr>
-            <tr>
-              <th>CVSS v3 Score</th>
-              <td colspan="2">{{ cveDetail.cvss_v3_base_score || '-' }}</td>
-              <th >CVSS v3 Severity</th>
-              <td colspan="3">{{ cveDetail.cvss_v3_base_severity || '-' }}</td>
-            </tr>
-            <tr>
-              <th>CVSS v4 Vector</th>
-              <td colspan="5">{{ cveDetail.cvss_v4_vector || '-' }}</td>
-            </tr>
-            <tr>
-              <th>CVSS v4 Score</th>
-              <td colspan="2">{{ cveDetail.cvss_v4_base_score || '-' }}</td>
-              <th>CVSS v4 Severity</th>
-              <td colspan="3">{{ cveDetail.cvss_v4_base_severity || '-' }}</td>
-            </tr>
-            <tr>
-              <th>CPE</th>
-              <td colspan="5">{{ formatAffectedProducts(cveDetail.cve_affected_products) }}</td>
-            </tr>
-            <tr>
-              <th>CWE</th>
-              <td colspan="5">{{ formatCWEIds(cveDetail.cwe_ids) }}</td>
-            </tr>
-            <tr>
-              <th>Reference Link</th>
-              <td colspan="5" v-html="formatReferenceLinks(cveDetail.reference_links)"></td>
-            </tr>
-          </table>
-        </section>
-      </div>
+  <el-dialog
+    v-model="dialogVisible"
+    :title="cveDetail ? `${cveDetail.cve_id} 상세 정보` : 'CVE 상세 정보'"
+    width="80%"
+    :before-close="handleClose"
+  >
+    <div v-if="cveDetail" class="modal-body">
+      <el-tabs>
+        <el-tab-pane label="분석 내용">
+          <el-descriptions :column="3" border>
+            <el-descriptions-item label="CVE ID" :label-style="labelStyle">{{ cveDetail.cve_id }}</el-descriptions-item>
+            <el-descriptions-item label="위험도" :label-style="labelStyle">
+              <el-image
+                :src="getRiskLevelIcon(cveDetail.risk_level)"
+                :alt="getRiskLevel(cveDetail.risk_level)"
+                style="width: 20px; height: 20px; vertical-align: middle;"
+              />
+              {{ getRiskLevel(cveDetail.risk_level) }}
+            </el-descriptions-item>
+            <el-descriptions-item label="취약점 분류" :label-style="labelStyle">{{ cveDetail.vulnerability_type || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="최초 분석일" :label-style="labelStyle">{{ formatDateTime(cveDetail.created_at) }}</el-descriptions-item>
+            <el-descriptions-item label="최종 분석일" :span="2" :label-style="labelStyle">{{ formatDateTime(cveDetail.updated_at) }}</el-descriptions-item>
+            <el-descriptions-item label="영향받는 시스템" :span="3" :label-style="labelStyle">{{ cveDetail.affected_systems || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="영향받는 제품" :span="3" :label-style="labelStyle">{{ formatAffectedProducts(cveDetail.analysis_affected_products) }}</el-descriptions-item>
+            <el-descriptions-item label="분석 요약" :span="3" :label-style="labelStyle">{{ cveDetail.analysis_summary || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="권장사항" :span="3" :label-style="labelStyle">{{ cveDetail.recommendation || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="기술적 세부사항" :span="3" :label-style="labelStyle">{{ cveDetail.technical_details || '-' }}</el-descriptions-item>
+          </el-descriptions>
+        </el-tab-pane>
+        
+        <el-tab-pane label="CVE 정보">
+          <el-descriptions :column="3" border>
+            <el-descriptions-item label="발행일" :label-style="labelStyle">{{ formatDateTime(cveDetail.published_date) }}</el-descriptions-item>
+            <el-descriptions-item label="최종 수정일" :label-style="labelStyle">{{ formatDateTime(cveDetail.last_modified_date) }}</el-descriptions-item>
+            <el-descriptions-item label="취약점 상태" :label-style="labelStyle">{{ cveDetail.vulnerability_status || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="설명(영문)" :span="3" :label-style="labelStyle">{{ cveDetail.description }}</el-descriptions-item>
+            <el-descriptions-item label="CVSS v3 Vector" :span="3" :label-style="labelStyle">{{ cveDetail.cvss_v3_vector || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="CVSS v3 Score" :label-style="labelStyle">{{ cveDetail.cvss_v3_base_score || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="CVSS v3 Severity" :span="2" :label-style="labelStyle">{{ cveDetail.cvss_v3_base_severity || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="CVSS v4 Vector" :span="3" :label-style="labelStyle">{{ cveDetail.cvss_v4_vector || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="CVSS v4 Score" :label-style="labelStyle">{{ cveDetail.cvss_v4_base_score || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="CVSS v4 Severity" :span="2" :label-style="labelStyle">{{ cveDetail.cvss_v4_base_severity || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="CPE" :span="3" :label-style="labelStyle">{{ formatAffectedProducts(cveDetail.cve_affected_products) }}</el-descriptions-item>
+            <el-descriptions-item label="CWE" :span="3" :label-style="labelStyle">{{ formatCWEIds(cveDetail.cwe_ids) }}</el-descriptions-item>
+            <el-descriptions-item label="Reference Link" :span="3" :label-style="labelStyle">
+              <div v-html="formatReferenceLinks(cveDetail.reference_links)"></div>
+            </el-descriptions-item>
+          </el-descriptions>
+        </el-tab-pane>
+      </el-tabs>
     </div>
-  </div>
+  </el-dialog>
 </template>
 
 <script>
-import { ref, watch } from 'vue';
+import { ref, watch, computed } from 'vue';
 import axios from 'axios';
 
 export default {
@@ -128,30 +62,46 @@ export default {
     show: Boolean,
     cveId: String,
   },
-  emits: ['close'],
+  emits: ['update:show'],
   setup(props, { emit }) {
     const cveDetail = ref(null);
-
-    const fetchCVEDetail = async () => {
-      try {
-        const response = await axios.get(`https://k07yvmvs4c.execute-api.ap-northeast-2.amazonaws.com/cve/${props.cveId}`);
-        cveDetail.value = response.data.result;  // 여기를 수정
-      } catch (error) {
-        console.error('CVE 상세 정보를 불러오는 중 오류가 발생했습니다:', error);
-      }
-    };
+    const dialogVisible = ref(props.show);
 
     watch(() => props.show, (newValue) => {
+      dialogVisible.value = newValue;
       if (newValue && props.cveId) {
         fetchCVEDetail();
       }
     });
 
-    const closeModal = () => {
-      emit('close');
+    watch(dialogVisible, (newValue) => {
+      emit('update:show', newValue);
+    });
+
+    const fetchCVEDetail = async () => {
+      try {
+        const response = await axios.get(`https://k07yvmvs4c.execute-api.ap-northeast-2.amazonaws.com/cve/${props.cveId}`);
+        cveDetail.value = response.data.result;
+      } catch (error) {
+        console.error('CVE 상세 정보를 불러오는 중 오류가 발생했습니다:', error);
+      }
+    };
+
+    const handleClose = (done) => {
+      done();
     };
 
     const formatDate = (dateString) => {
+      if (!dateString) return '-';
+      const date = new Date(dateString);
+      return date.toLocaleDateString('ko-KR', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      }).replace(/\. /g, '-').replace(',', '').replace(/\.$/, '');
+    };
+
+    const formatDateTime = (dateString) => {
       if (!dateString) return '-';
       const date = new Date(dateString);
       return date.toLocaleString('ko-KR', {
@@ -162,7 +112,7 @@ export default {
         minute: '2-digit',
         second: '2-digit',
         hour12: false
-      }).replace(/\. /g, '.').replace(',', '').replace(/\.(?=[0-9]{2}:)/, ' ');
+      }).replace(/\. /g, '-').replace(',', '').replace(/:/g, ':').replace(/-/g, ' ');
     };
 
     const getRiskLevel = (level) => {
@@ -198,186 +148,43 @@ export default {
       return cweIds.join(', ');
     };
 
+    const labelStyle = computed(() => ({
+      width: '150px',
+      minWidth: '150px',
+      maxWidth: '150px',
+      backgroundColor: '#f0f0f0',
+    }));
+
     return {
       cveDetail,
-      closeModal,
+      dialogVisible,
+      handleClose,
       formatDate,
       getRiskLevel,
       getRiskLevelIcon,
       formatAffectedProducts,
       formatReferenceLinks,
       formatCWEIds,
+      labelStyle,
+      formatDateTime,
     };
   }
 }
 </script>
 
 <style scoped>
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background-color: rgba(0, 0, 0, 0.5);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 1000;
-}
-
-.modal-content {
-  background-color: white;
-  padding: 20px;
-  border-radius: 8px;
-  max-width: 960px; /* 800px에서 20% 증가 */
-  width: 95%; /* 90%에서 95%로 증가 */
-  max-height: 90vh;
-  overflow-y: auto;
-}
-
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+.el-descriptions {
   margin-bottom: 20px;
 }
 
-.close-button {
-  background: none;
-  border: none;
-  font-size: 24px;
-  cursor: pointer;
+:deep(.el-descriptions__label) {
+  width: 150px !important;
+  min-width: 150px !important;
+  max-width: 150px !important;
+  background-color: #f0f0f0 !important;
 }
 
-.modal-body {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-th, td {
-  border: 1px solid #ddd;
-  padding: 8px;
-  text-align: left;
-}
-
-th {
-  background-color: #f2f2f2;
-  width: 30%;
-}
-
-h3 {
-  margin-top: 0;
-}
-
-/* 추가 스타일 */
-.modal-body table {
-  table-layout: fixed;
-}
-
-.modal-body th {
-  width: 15%;
-}
-
-.modal-body td {
-  width: 18%;
-}
-
-.modal-body td[colspan="5"] {
-  width: 85%;
-}
-
-.modal-body td[colspan="3"] {
-  width: 51%;
-}
-
-.info-table, .detail-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-bottom: 10px;
-}
-
-.info-table th, .info-table td {
-  border: 1px solid #b0c4ff;
-  padding: 8px;
-  text-align: left;
-  width: 16.66%; /* 6개의 열을 균등하게 분배 */
-}
-
-.detail-table th {
-  width: 180px; /* 고정된 크기로 설정 */
-  background-color: #648eeb;
-  color: white;
-}
-
-.detail-table td {
-  width: auto; /* 남은 공간을 자동으로 채우도록 설정 */
-}
-
-/* CVE 정보 섹션의 detail-table에 대한 추가 스타일 */
-.detail-table td[colspan="3"] {
-  width: calc(100% - 180px); /* th의 너비를 제외한 나머지 */
-}
-
-.info-table th, .detail-table th {
-  background-color: #648eeb;
-  color: white;
-}
-
-/* 기존의 .modal-body table 관련 스타일은 제거 또는 주석 처리 */
-
-.unified-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-bottom: 10px;
-  table-layout: fixed;
-}
-
-.unified-table th, .unified-table td {
-  border: 1px solid #b0c4ff;
-  padding: 8px;
-  text-align: left;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: normal; /* 'nowrap'에서 'normal'로 변경 */
-  word-wrap: break-word; /* 긴 단어의 줄바꿈 허용 */
-}
-
-.unified-table th {
-  background-color: #648eeb;
-  color: white;
-}
-
-/* col-* 클래스 제거 (colgroup으로 대체) */
-
-/* 긴 내용을 위한 스타일 */
-.unified-table td[colspan="5"],
-.unified-table td[colspan="4"],
-.unified-table td[colspan="3"],
-.unified-table td.col-10 {
-  white-space: normal;
-  word-wrap: break-word;
-}
-
-/* 추가 스타일 */
-.unified-table tr {
-  display: table-row;
-}
-
-.unified-table td:empty::after {
-  content: "\00a0"; /* 빈 셀에 공백 문자 추가 */
-}
-
-.risk-icon {
-  width: 20px;
-  height: 20px;
-  vertical-align: middle;
-  margin-right: 5px;
+:deep(.el-descriptions__content) {
+  word-break: break-word;
 }
 </style>

@@ -7,7 +7,7 @@
       style="width: 100%"
       @row-click="showDetail"
     >
-      <el-table-column prop="published_date" label="등록일" width="120">
+<el-table-column prop="published_date" label="등록일" width="120">
         <template #default="scope">
           {{ formatDate(scope.row.published_date) }}
         </template>
@@ -37,7 +37,7 @@
           </el-tooltip>
         </template>
       </el-table-column>
-      <el-table-column prop="affected_products" label="영향받는 제품" min-width="150">
+      <el-table-column prop="affected_products" label="영향받는 제품명" min-width="150">
         <template #default="scope">
           <el-tooltip :content="scope.row.affected_products?.join(', ')" placement="top" :hide-after="0">
             <span>{{ formatAffectedProducts(scope.row.affected_products) }}</span>
@@ -51,7 +51,12 @@
       </el-table-column>
       <el-table-column label="분석" width="80">
         <template #default="scope">
-          <el-button @click.stop="requestAnalysis(scope.row.cve_id)" type="primary" size="small" :icon="scope.row.analysis_summary ? 'Refresh' : 'VideoPlay'" />
+          <el-image
+            :src="scope.row.analysis_summary ? getRetryIcon() : getPlayIcon()"
+            :alt="scope.row.analysis_summary ? '재분석' : '분석'"
+            style="width: 24px; height: 24px; cursor: pointer;"
+            @click="requestAnalysis(scope.row.cve_id)"
+          />
         </template>
       </el-table-column>
     </el-table>
@@ -66,10 +71,9 @@
       />
     </div>
 
-    <CVEDetailModal 
-      :show="showModal"
-      :cveId="selectedCveId"
-      @close="closeModal"
+    <CVEDetailModal
+      v-model:show="showModal"
+      :cve-id="selectedCveId"
     />
   </div>
 </template>
@@ -87,10 +91,10 @@ export default {
   setup() {
     const cves = ref([])
     const pagination = ref(null)
-    const showModal = ref(false)
-    const selectedCveId = ref(null)
     const currentPage = ref(1)
     const loading = ref(false)
+    const showModal = ref(false)
+    const selectedCveId = ref(null)
 
     const fetchCVEs = async (page = 1) => {
       loading.value = true
@@ -113,25 +117,24 @@ export default {
     const formatDate = (dateString) => {
       if (!dateString) return '-'
       const date = new Date(dateString)
-      return date.toLocaleDateString('ko-KR', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit'
-      }).replace(/\. /g, '-').replace(',', '').replace(/\.$/, '')
+      const year = date.toLocaleDateString('en-US', { year: 'numeric' })
+      const month = date.toLocaleDateString('en-US', { month: '2-digit' })
+      const day = date.toLocaleDateString('en-US', { day: '2-digit' })
+
+      return `${year}-${month}-${day}`
     }
 
     const formatDateTime = (dateString) => {
       if (!dateString) return '-'
       const date = new Date(dateString)
-      return date.toLocaleString('ko-KR', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false
-      }).replace(/\. /g, '-').replace(',', '').replace(/-/g, ' ')
+      const year = date.toLocaleString('en-US', { year: 'numeric' })
+      const month = date.toLocaleString('en-US', { month: '2-digit' })
+      const day = date.toLocaleString('en-US', { day: '2-digit' })
+      const hour = date.toLocaleString('en-US', { hour: '2-digit' })
+      const minute = date.toLocaleString('en-US', { minute: '2-digit' })
+      const second = date.toLocaleString('en-US', { second: '2-digit' })
+
+      return `${year}-${month}-${day} ${hour}:${minute}:${second}`
     }
 
     const truncateText = (text, length) => {
@@ -158,16 +161,6 @@ export default {
       }
     }
 
-    const showDetail = (row) => {
-      selectedCveId.value = row.cve_id
-      showModal.value = true
-    }
-
-    const closeModal = () => {
-      showModal.value = false
-      selectedCveId.value = null
-    }
-
     const getRiskLevel = (level) => {
       const levels = {
         '0': 'LOW',
@@ -186,13 +179,24 @@ export default {
       return icons[level] || require('@/assets/risk_unknown.svg')
     }
 
+    const getPlayIcon = () => {
+      return require('@/assets/play.png')
+    }
+
+    const getRetryIcon = () => {
+      return require('@/assets/retry.png')
+    }
+
+    const showDetail = (row) => {
+      selectedCveId.value = row.cve_id
+      showModal.value = true
+    }
+
     onMounted(() => fetchCVEs())
 
     return {
       cves,
       pagination,
-      showModal,
-      selectedCveId,
       currentPage,
       loading,
       formatDate,
@@ -200,11 +204,14 @@ export default {
       truncateText,
       formatAffectedProducts,
       requestAnalysis,
-      showDetail,
-      closeModal,
       handleCurrentChange,
       getRiskLevel,
-      getRiskLevelIcon
+      getRiskLevelIcon,
+      getPlayIcon,
+      getRetryIcon,
+      showModal,
+      selectedCveId,
+      showDetail,
     }
   }
 }
