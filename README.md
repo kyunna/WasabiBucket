@@ -22,8 +22,6 @@ CVE(Common Vulnerabilities and Exposures) 데이터를 LLM(Large Language Model)
 ├── docs/ # 프로젝트 문서
 ├── .github/workflows/ # CI/CD 설정
 ├── .gitignore
-├── go.mod
-├── go.sum
 └── README.md
 ```
 
