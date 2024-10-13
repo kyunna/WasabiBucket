@@ -130,9 +130,9 @@ export default {
       const year = date.toLocaleString('en-US', { year: 'numeric' })
       const month = date.toLocaleString('en-US', { month: '2-digit' })
       const day = date.toLocaleString('en-US', { day: '2-digit' })
-      const hour = date.toLocaleString('en-US', { hour: '2-digit' })
-      const minute = date.toLocaleString('en-US', { minute: '2-digit' })
-      const second = date.toLocaleString('en-US', { second: '2-digit' })
+      const hour = date.toLocaleString('en-US', { hour: '2-digit', hour12: false })
+      const minute = date.getMinutes().toString().padStart(2, '0')
+      const second = date.getSeconds().toString().padStart(2, '0')
 
       return `${year}-${month}-${day} ${hour}:${minute}:${second}`
     }

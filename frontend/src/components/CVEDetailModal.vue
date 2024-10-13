@@ -92,28 +92,27 @@ export default {
     };
 
     const formatDate = (dateString) => {
-      if (!dateString) return '-';
-      const date = new Date(dateString);
-      return date.toLocaleDateString('ko-KR', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit'
-      }).replace(/\. /g, '-').replace(',', '').replace(/\.$/, '');
-    };
+      if (!dateString) return '-'
+      const date = new Date(dateString)
+      const year = date.toLocaleDateString('en-US', { year: 'numeric' })
+      const month = date.toLocaleDateString('en-US', { month: '2-digit' })
+      const day = date.toLocaleDateString('en-US', { day: '2-digit' })
+
+      return `${year}-${month}-${day}`
+    }
 
     const formatDateTime = (dateString) => {
-      if (!dateString) return '-';
-      const date = new Date(dateString);
-      return date.toLocaleString('ko-KR', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false
-      }).replace(/\. /g, '-').replace(',', '').replace(/:/g, ':').replace(/-/g, ' ');
-    };
+      if (!dateString) return '-'
+      const date = new Date(dateString)
+      const year = date.toLocaleString('en-US', { year: 'numeric' })
+      const month = date.toLocaleString('en-US', { month: '2-digit' })
+      const day = date.toLocaleString('en-US', { day: '2-digit' })
+      const hour = date.toLocaleString('en-US', { hour: '2-digit', hour12: false })
+      const minute = date.getMinutes().toString().padStart(2, '0')
+      const second = date.getSeconds().toString().padStart(2, '0')
+
+      return `${year}-${month}-${day} ${hour}:${minute}:${second}`
+    }
 
     const getRiskLevel = (level) => {
       const levels = {
