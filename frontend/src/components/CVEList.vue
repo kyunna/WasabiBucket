@@ -1,22 +1,38 @@
 <template>
   <div>
-    <h1>CVE List</h1>
+    <h1 class="clickable" @click="resetList">CVE List</h1>
+    <div class="search-container">
+      <el-input
+        v-model="searchQuery"
+        placeholder="CVE ID 검색"
+        class="search-input"
+        clearable
+        @keyup.enter="handleSearch"
+      >
+        <template #append>
+          <el-button @click="handleSearch">
+            검색
+          </el-button>
+        </template>
+      </el-input>
+    </div>
     <el-table
       v-loading="loading"
       :data="cves"
       style="width: 100%"
       @row-click="showDetail"
+      @sort-change="handleSortChange"
     >
-<el-table-column prop="published_date" label="등록일" width="120">
-        <template #default="scope">
-          {{ formatDate(scope.row.published_date) }}
-        </template>
-      </el-table-column>
-      <el-table-column prop="last_modified_date" label="갱신일" width="120">
-        <template #default="scope">
-          {{ formatDate(scope.row.last_modified_date) }}
-        </template>
-      </el-table-column>
+    <el-table-column prop="published_date" label="등록일" width="120" sortable="custom">
+      <template #default="scope">
+        {{ formatDate(scope.row.published_date) }}
+      </template>
+    </el-table-column>
+    <el-table-column prop="last_modified_date" label="갱신일" width="120" sortable="custom">
+      <template #default="scope">
+        {{ formatDate(scope.row.last_modified_date) }}
+      </template>
+    </el-table-column>
       <el-table-column prop="cve_id" label="CVE ID" width="140" />
       <el-table-column prop="vulnerability_status" label="상태" width="100" />
       <el-table-column prop="analysis_summary" label="분석 요약" min-width="200">
@@ -44,11 +60,11 @@
           </el-tooltip>
         </template>
       </el-table-column>
-      <el-table-column prop="analysis_updated_at" label="최종 분석일" width="160">
-        <template #default="scope">
-          {{ formatDateTime(scope.row.analysis_updated_at) }}
-        </template>
-      </el-table-column>
+      <el-table-column prop="analysis_updated_at" label="최종 분석일" width="160" sortable="custom">
+      <template #default="scope">
+        {{ formatDateTime(scope.row.analysis_updated_at) }}
+      </template>
+    </el-table-column>
       <el-table-column label="분석" width="80">
         <template #default="scope">
           <el-image
@@ -95,20 +111,33 @@ export default {
     const loading = ref(false)
     const showModal = ref(false)
     const selectedCveId = ref(null)
+    const searchQuery = ref('')
+    const sortBy = ref('')
+    const sortOrder = ref('')
 
-    const fetchCVEs = async (page = 1) => {
-      loading.value = true
-      try {
-        const response = await axios.get(`https://k07yvmvs4c.execute-api.ap-northeast-2.amazonaws.com/cve?page=${page}`)
-        cves.value = response.data.data
-        pagination.value = response.data.pagination
-      } catch (error) {
-        console.error('CVE 데이터를 불러오는 중 오류가 발생했습니다:', error)
-        ElMessage.error('데이터를 불러오는 데 실패했습니다.')
-      } finally {
-        loading.value = false
+    const fetchCVEs = async (page = 1, search = '', sort = '') => {
+    loading.value = true
+    try {
+      const url = new URL('https://k07yvmvs4c.execute-api.ap-northeast-2.amazonaws.com/cve')
+      const params = new URLSearchParams({ page: page.toString() })
+      
+      if (search) params.append('cveId', search)
+      if (sort) {
+        params.append('sortBy', sortBy.value)
+        params.append('sortOrder', sortOrder.value)
       }
+      
+      url.search = params.toString()
+      const response = await axios.get(url.toString())
+      cves.value = response.data.data
+      pagination.value = response.data.pagination
+    } catch (error) {
+      console.error('CVE 데이터를 불러오는 중 오류가 발생했습니다:', error)
+      ElMessage.error('데이터를 불러오는 데 실패했습니다.')
+    } finally {
+      loading.value = false
     }
+  }
 
     const handleCurrentChange = (val) => {
       fetchCVEs(val)
@@ -192,6 +221,31 @@ export default {
       showModal.value = true
     }
 
+    const handleSearch = () => {
+      if (searchQuery.value.trim()) {
+        fetchCVEs(1, searchQuery.value.trim())
+      } else {
+      fetchCVEs(1)
+    }
+      currentPage.value = 1
+    }
+
+    // 정렬 이벤트 핸들러 추가
+  const handleSortChange = ({ prop, order }) => {
+    sortBy.value = prop
+    sortOrder.value = order === 'ascending' ? 'asc' : 'desc'
+    fetchCVEs(currentPage.value, searchQuery.value, true)
+  }
+
+  // 리스트 초기화 함수 추가
+  const resetList = () => {
+    searchQuery.value = ''
+    sortBy.value = ''
+    sortOrder.value = ''
+    currentPage.value = 1
+    fetchCVEs()
+  }
+
     onMounted(() => fetchCVEs())
 
     return {
@@ -212,15 +266,33 @@ export default {
       showModal,
       selectedCveId,
       showDetail,
+      searchQuery,
+      handleSearch,
+      handleSortChange,
+      resetList,
     }
   }
 }
 </script>
 
 <style scoped>
+.search-container {
+  margin-bottom: 20px;
+  display: flex;
+  justify-content: center;
+}
+
+.search-input {
+  width: 400px;
+}
+
 .pagination-container {
   margin-top: 20px;
   display: flex;
   justify-content: center;
+}
+
+.clickable {
+  cursor: pointer;
 }
 </style>
