@@ -3,16 +3,11 @@ package analyzer
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"wasabibucket/internal/common"
 	"wasabibucket/internal/models"
-
-	"github.com/lib/pq"
-	"github.com/sashabaranov/go-openai"
 )
 
 type Analyzer struct {
@@ -101,242 +96,106 @@ func (a *Analyzer) Run(ctx context.Context, maxAnalyzer int64) error {
 				continue
 			}
 
-			if len(messages) > 0 {
-				for _, message := range messages {
-					cveID := *message.Body
-					a.logger.Printf("Start analyzing %s", cveID)
+			if len(messages) == 0 {
+				ticker.Reset(defaultInterval)
+				continue
+			}
 
-					prompt, err := generatePrompt(a.db, cveID)
-					if err != nil {
-						if err == sql.ErrNoRows {
-							a.logger.Printf("No data found for %s from CVE Data", cveID)
-							if err := a.sqs.DeleteMessage(message.ReceiptHandle); err != nil {
-								a.logger.Errorf("Failed to delete SQS message for non-existent %s: %v", cveID, err)
-							} else {
-								a.logger.Printf("Delete SQS message for non-existent %s", cveID)
-							}
-							continue
+			for _, message := range messages {
+				cveID := *message.Body
+				a.logger.Printf("%s | Start analyzing", cveID)
+
+				// 1. Exploit-DB PoC 수집 및 저장
+				groupedExploitDB, err := fetchExploitDBPoC(cveID, a.config.GetExploitDBPath())
+				if err != nil {
+					a.logger.Errorf("%s | Exploit-DB fetch failed: %v", cveID, err)
+					continue
+				}  else {
+					if len(groupedExploitDB) == 0 {
+						a.logger.Printf("%s | Exploit-DB PoC: No match found", cveID)
+					} else {
+						a.logger.Printf("%s | Exploit-DB PoC: %d entries", cveID, len(groupedExploitDB))
+						err = storePoCData(a.db, groupedExploitDB)
+						if err != nil {
+							a.logger.Errorf("%s | Failed to store Exploit-DB PoC data: %v", cveID, err)
+						} else {
+							a.logger.Printf("%s | Exploit-DB PoC data stored", cveID)
 						}
-						a.logger.Errorf("Failed to generate prompt for %s: %v", cveID, err)
-						continue
-					}
-
-					analysisCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-					defer cancel()
-
-					analysis, err := analyzeWithChatGPT(a.openaiClient, analysisCtx, prompt)
-					if err != nil {
-						a.logger.Errorf("Failed to analyze %s with ChatGPT: %v", cveID, err)
-						continue
-					}
-
-					parsedAnalysis, err := parseResponse(analysis)
-					if err != nil {
-						a.logger.Errorf("Failed to parse AI response for %s: %v", cveID, err)
-						continue
-					}
-
-					a.logger.Printf("Complete analyzing %s", cveID)
-
-					if err := storeAnalysisResult(a.db, cveID, parsedAnalysis); err != nil {
-						a.logger.Errorf("Failed to store analysis result for %s: %v", cveID, err)
-						continue
-					}
-
-					a.logger.Printf("Update analysis data to DB: %s", cveID)
-
-					if err := a.sqs.DeleteMessage(message.ReceiptHandle); err != nil {
-						a.logger.Errorf("Failed to delete SQS message (%s): %v", cveID, err)
 					}
 				}
+				// 2. Github PoC 수집 및 저장
+				githubItems, err := fetchGitHubPoC(cveID, a.config.GetGitHubToken())
+				if err != nil {
+					a.logger.Errorf("%s | GitHub PoC fetch failed: %v", cveID, err)
+				} else {
+					groupedGitHub := buildGroupedPoC(cveID, githubItems, a.config.GetGitHubToken())
+					a.logger.Printf("%s | GitHub PoC: %d repos, %d files", cveID, len(groupedGitHub), countFiles(groupedGitHub))
+					err = storePoCData(a.db, groupedGitHub)
+					if err != nil {
+						a.logger.Errorf("%s | Failed to store GitHub PoC data: %v", cveID, err)
+					} else {
+						a.logger.Printf("%s | GitHub PoC data stored", cveID)
+					}
+				}
+
+				// 3. Prompt 생성
+				prompt, err := generatePrompt(a.db, cveID)
+				if err != nil {
+					if err == sql.ErrNoRows {
+						a.logger.Printf("%s | No CVE data available, deleting message", cveID)
+						if err := a.sqs.DeleteMessage(message.ReceiptHandle); err != nil {
+							a.logger.Errorf("%s | Failed to delete SQS message: %v", cveID, err)
+						} else {
+							a.logger.Printf("%s | SQS message deleted", cveID)
+						}
+						continue
+					}
+					a.logger.Errorf("%s | Prompt generation failed: %v", cveID, err)
+					continue
+				}
+
+				// 4. LLM 호출
+				analysisCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+				analysis, err := analyzeWithChatGPT(a.openaiClient, analysisCtx, prompt)
+				cancel()
+				if err != nil {
+					a.logger.Errorf("%s | ChatGPT analysis failed: %v", cveID, err)
+					continue
+				}
+				a.logger.Printf("%s | ChatGPT response received", cveID)
+
+
+				// 5. 분석 결과 저장
+				parsedAnalysis, err := parseResponse(analysis)
+				if err != nil {
+					a.logger.Errorf("%s | Failed to parse AI response: %v", cveID, err)
+					continue
+				}
+
+				if err := storeAnalysisResult(a.db, cveID, parsedAnalysis); err != nil {
+					a.logger.Errorf("%s | Failed to store analysis result: %v", cveID, err)
+					continue
+				}
+				a.logger.Printf("%s | Analysis result stored", cveID)
+
+				// 6. SQS message 삭제
+				if err := a.sqs.DeleteMessage(message.ReceiptHandle); err != nil {
+					a.logger.Errorf("%s | Failed to delete SQS message: %v", cveID, err)
+				} else {
+					a.logger.Printf("%s | SQS message deleted", cveID)
+				}
+
+				a.logger.Printf("%s | Analysis complete", cveID)
 				ticker.Reset(shortInterval)
-			} else {
-				ticker.Reset(defaultInterval)
 			}
 		}
 	}
 }
 
-func generatePrompt(db common.DatabaseConnector, cveID string) (string, error) {
-	var cve models.CVEResponse
-	var affectedProducts, cweIDs pq.StringArray
-
-	query := `
-		SELECT 
-		cve_id, 
-		description, 
-		cvss_v3_vector, 
-		cvss_v3_base_score, 
-		cvss_v3_base_severity,
-		cvss_v4_vector, 
-		cvss_v4_base_score, 
-		cvss_v4_base_severity,
-		affected_products,
-		cwe_ids
-		FROM cve_data 
-		WHERE cve_id = $1
-		`
-	err := db.QueryRow(query, cveID).Scan(
-		&cve.ID,
-		&cve.Description,
-		&cve.CvssV3Vector,
-		&cve.CvssV3BaseScore,
-		&cve.CvssV3BaseSeverity,
-		&cve.CvssV4Vector,
-		&cve.CvssV4BaseScore,
-		&cve.CvssV4BaseSeverity,
-		&affectedProducts,
-		&cweIDs,
-	)
-	if err != nil {
-		return "", err
+func countFiles(grouped []models.GroupedPoC) int {
+	total := 0
+	for _, g := range grouped {
+		total += len(g.Files)
 	}
-	cve.AffectedProducts = []string(affectedProducts)
-	cve.CWEIDs = []string(cweIDs)
-
-	var cvssInfo string
-	if cve.CvssV3Vector != "" || cve.CvssV3BaseScore > 0 {
-		cvssInfo = fmt.Sprintf(`
-		CVSS V3 Vector: %s
-		CVSS V3 Score: %.1f
-		CVSS V3 Severity: %s`, cve.CvssV3Vector, cve.CvssV3BaseScore, cve.CvssV3BaseSeverity)
-	} else if cve.CvssV4Vector != "" || cve.CvssV4BaseScore > 0 {
-		cvssInfo = fmt.Sprintf(`
-		CVSS V4 Vector: %s
-		CVSS V4 Score: %.1f
-		CVSS V4 Severity: %s`, cve.CvssV4Vector, cve.CvssV4BaseScore, cve.CvssV4BaseSeverity)
-	} else {
-		cvssInfo = "No CVSS information available"
-	}
-
-	var affectedProductsInfo string
-	if len(cve.AffectedProducts) > 0 {
-		affectedProductsInfo = fmt.Sprintf("Affected Products: %s", strings.Join(cve.AffectedProducts, ", "))
-	} else {
-		affectedProductsInfo = "No affected products information available"
-	}
-
-	prompt := fmt.Sprintf(`
-	As a cybersecurity expert, analyze vulnerability %s based on the provided information. Respond in JSON format:
-
-	{
-	"analysis_summary": "Comprehensive analysis considering CVSS score, affected systems, and vulnerability type. (Max 5 sentences)",
-	"affected_systems": "Brief description of impacted systems/software based on the CVE description (e.g., 'Linux kernel-based systems', 'WordPress plugin WPFactory Helper', 'Draytek Vigor 3910 router')",
-	"affected_products": ["List", "of", "specific", "affected", "product", "names", "based", "on", "CPE", "information"],
-	"vulnerability_type": "Category or type of vulnerability in English",
-	"risk_level": 0, // 0: Low, 1: Medium, 2: High, based on CVSS score and severity
-	"recommendation": "Specific actions to mitigate or address the vulnerability (2-3 sentences)",
-	"technical_details": "Technical specifics, attack vectors, and potential impact if exploited (3-4 sentences)"
-	}
-
-	Guidelines:
-	1. Integrate all provided data (CVSS score, affected products, CWE IDs) for a professional analysis.
-	2. 'analysis_summary': Include vulnerability significance, potential impact, and technical characteristics.
-	3. 'affected_systems': Describe the types of systems or software affected, based on the CVE description.
-	4. 'affected_products': List specific product names affected, based on the CPE information provided.
-	5. 'technical_details': Be specific and technical. Include potential impact and attack vectors. Do not mention the CVE ID in this field.
-	6. 'recommendation': Provide actionable and concrete measures.
-	7. 'vulnerability_type': Use standard cybersecurity terms in English.
-	8. For all fields except 'analysis_summary', avoid mentioning the CVE ID directly.
-
-	Description: %s
-
-	%s
-
-	%s
-	CWE IDs: %s
-
-	Provide a valid JSON response. Use Korean for all fields except 'vulnerability_type' and 'affected_products'.
-	`,
-		cve.ID,
-		cve.Description,
-		cvssInfo,
-		affectedProductsInfo,
-		strings.Join(cve.CWEIDs, ", "),
-	)
-
-	return prompt, nil
-}
-
-func analyzeWithChatGPT(openaiClient common.OpenAIClient, ctx context.Context, prompt string) (string, error) {
-	resp, err := openaiClient.CreateChatCompletion(
-		ctx,
-		openai.ChatCompletionRequest{
-			Model: openai.GPT4oMini, // GPT-4 모델 사용
-			Messages: []openai.ChatCompletionMessage{
-				{
-					Role:    openai.ChatMessageRoleUser,
-					Content: prompt,
-				},
-			},
-		},
-	)
-
-	if err != nil {
-		return "", fmt.Errorf("ChatGPT API error: %w", err)
-	}
-
-	return resp.Choices[0].Message.Content, nil
-}
-
-func parseResponse(response string) (*models.AIAnalysis, error) {
-	// ```json으로 시작하는 부분 찾기
-	startIndex := strings.Index(response, "```json")
-	if startIndex == -1 {
-		return nil, fmt.Errorf("JSON 시작 태그를 찾을 수 없습니다")
-	}
-
-	// JSON 내용 추출
-	jsonContent := response[startIndex+7:]
-	endIndex := strings.Index(jsonContent, "```")
-	if endIndex == -1 {
-		return nil, fmt.Errorf("JSON 종료 태그를 찾을 수 없습니다")
-	}
-	jsonContent = jsonContent[:endIndex]
-
-	// 추출된 JSON 파싱
-	var analysis models.AIAnalysis
-	err := json.Unmarshal([]byte(jsonContent), &analysis)
-	if err != nil {
-		return nil, fmt.Errorf("AI 응답 파싱 실패: %w", err)
-	}
-
-	// 파싱된 데이터 출력
-	// fmt.Printf("Analysis Summary: %s\n", analysis.AnalysisSummary)
-	// fmt.Printf("Affected Systems: %s\n", analysis.AffectedSystems)
-	// fmt.Printf("Affected Products: %v\n", analysis.AffectedProducts)
-	// fmt.Printf("Vulnerability Type: %s\n", analysis.VulnerabilityType)
-	// fmt.Printf("Risk Level: %d\n", analysis.RiskLevel)
-	// fmt.Printf("Recommendation: %s\n", analysis.Recommendation)
-	// fmt.Printf("Technical Details: %s\n", analysis.TechnicalDetails)
-
-	return &analysis, nil
-}
-
-func storeAnalysisResult(db common.DatabaseConnector, cveID string, analysis *models.AIAnalysis) error {
-	query := `
-        INSERT INTO analysis_data (
-            cve_id, analysis_summary, affected_systems, affected_products, 
-            vulnerability_type, risk_level, recommendation, 
-            technical_details, created_at, updated_at
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-        ON CONFLICT (cve_id) DO UPDATE SET
-            analysis_summary = EXCLUDED.analysis_summary,
-            affected_systems = EXCLUDED.affected_systems,
-            affected_products = EXCLUDED.affected_products,
-            vulnerability_type = EXCLUDED.vulnerability_type,
-            risk_level = EXCLUDED.risk_level,
-            recommendation = EXCLUDED.recommendation,
-            technical_details = EXCLUDED.technical_details,
-            updated_at = CURRENT_TIMESTAMP
-    `
-	_, err := db.Exec(query, cveID, analysis.AnalysisSummary, analysis.AffectedSystems,
-		pq.Array(analysis.AffectedProducts), analysis.VulnerabilityType,
-		analysis.RiskLevel, analysis.Recommendation,
-		analysis.TechnicalDetails)
-	if err != nil {
-		return fmt.Errorf("Failed to store analysis result: %w", err)
-	}
-	return nil
+	return total
 }

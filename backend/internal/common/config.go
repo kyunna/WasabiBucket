@@ -15,6 +15,8 @@ type ConfigLoader interface {
 	GetDatabaseConfig() DatabaseConfig
 	GetSQSConfig() SQSConfig
 	GetGPTAPIKey() string
+	GetExploitDBPath() string
+	GetGitHubToken() string
 }
 
 type Config struct {
@@ -23,6 +25,8 @@ type Config struct {
 	Database  DatabaseConfig
 	SQS       SQSConfig
 	GPTAPIKey string
+	ExploitDBPath string
+	GitHubToken string
 }
 
 type LoggerConfig struct {
@@ -82,6 +86,8 @@ func (c *Config) Load() error {
 		QueueURL:        getEnv("SQS_QUEUE_URL", ""),
 	}
 	c.GPTAPIKey = getEnv("GPT_API_KEY", "")
+	c.ExploitDBPath = getEnv("EXPLOIT_DB_PATH", "/opt/exploitdb")
+	c.GitHubToken = getEnv("GITHUB_TOKEN", "")
 
 	if err := c.validate(); err != nil {
 		return fmt.Errorf("config validation failed: %w", err)
@@ -108,6 +114,14 @@ func (c *Config) GetSQSConfig() SQSConfig {
 
 func (c *Config) GetGPTAPIKey() string {
 	return c.GPTAPIKey
+}
+
+func (c *Config) GetExploitDBPath() string {
+	return c.ExploitDBPath
+}
+
+func (c *Config) GetGitHubToken() string {
+	return c.GitHubToken
 }
 
 func getEnv(key, fallback string) string {

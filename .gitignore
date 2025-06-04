@@ -39,12 +39,12 @@ frontend/build
 node_modules
 /dist
 
-
 # Log files
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+backend/app/
 
 # Editor directories and files
 .idea

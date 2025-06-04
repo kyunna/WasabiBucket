@@ -112,8 +112,8 @@ func (f *FileLoggerInitializer) InitLogger(appName string, config ConfigLoader) 
 		writer = io.MultiWriter(logFile, os.Stdout)
 	}
 
-	infoLogger := log.New(writer, "[INFO] ", log.Ldate|log.Ltime|log.Lshortfile)
-	errorLogger := log.New(writer, "[ERROR] ", log.Ldate|log.Ltime|log.Lshortfile)
+	infoLogger := log.New(writer, "[INFO] ", log.Ldate|log.Ltime)
+	errorLogger := log.New(writer, "[ERROR] ", log.Ldate|log.Ltime)
 
 	return &FileLogger{
 		infoLogger:  infoLogger,
