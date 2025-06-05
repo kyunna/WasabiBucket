@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"wasabibucket/internal/common"
-	"wasabibucket/internal/models"
 )
 
 type Analyzer struct {
@@ -106,16 +105,16 @@ func (a *Analyzer) Run(ctx context.Context, maxAnalyzer int64) error {
 				a.logger.Printf("%s | Start analyzing", cveID)
 
 				// 1. Exploit-DB PoC 수집 및 저장
-				groupedExploitDB, err := fetchExploitDBPoC(cveID, a.config.GetExploitDBPath())
+				edbResult, err := fetchExploitDBPoC(cveID, a.config.GetExploitDBPath())
 				if err != nil {
 					a.logger.Errorf("%s | Exploit-DB fetch failed: %v", cveID, err)
 					continue
 				}  else {
-					if len(groupedExploitDB) == 0 {
+					if len(edbResult) == 0 {
 						a.logger.Printf("%s | Exploit-DB PoC: No match found", cveID)
 					} else {
-						a.logger.Printf("%s | Exploit-DB PoC: %d entries", cveID, len(groupedExploitDB))
-						err = storePoCData(a.db, groupedExploitDB)
+						a.logger.Printf("%s | Exploit-DB PoC: %d entries", cveID, len(edbResult))
+						err = storePoCData(a.db, edbResult)
 						if err != nil {
 							a.logger.Errorf("%s | Failed to store Exploit-DB PoC data: %v", cveID, err)
 						} else {
@@ -124,20 +123,22 @@ func (a *Analyzer) Run(ctx context.Context, maxAnalyzer int64) error {
 					}
 				}
 				// 2. Github PoC 수집 및 저장
-				githubItems, err := fetchGitHubPoC(cveID, a.config.GetGitHubToken())
+				githubResult, err := fetchGitHubPoC(cveID, a.config.GetGitHubToken())
 				if err != nil {
 					a.logger.Errorf("%s | GitHub PoC fetch failed: %v", cveID, err)
 				} else {
-					groupedGitHub := buildGroupedPoC(cveID, githubItems, a.config.GetGitHubToken())
-					a.logger.Printf("%s | GitHub PoC: %d repos, %d files", cveID, len(groupedGitHub), countFiles(groupedGitHub))
-					err = storePoCData(a.db, groupedGitHub)
-					if err != nil {
-						a.logger.Errorf("%s | Failed to store GitHub PoC data: %v", cveID, err)
+					if len(githubResult) == 0 {
+						a.logger.Printf("%s | GitHub PoC: No match found", cveID)
 					} else {
-						a.logger.Printf("%s | GitHub PoC data stored", cveID)
+						a.logger.Printf("%s | GitHub PoC: %d entries", cveID, len(githubResult))
+						err = storePoCData(a.db, githubResult)
+						if err != nil {
+							a.logger.Errorf("%s | Failed to store GitHub PoC data: %v", cveID, err)
+						} else {
+							a.logger.Printf("%s | GitHub PoC data stored", cveID)
+						}
 					}
 				}
-
 				// 3. Prompt 생성
 				prompt, err := generatePrompt(a.db, cveID)
 				if err != nil {
@@ -190,12 +191,4 @@ func (a *Analyzer) Run(ctx context.Context, maxAnalyzer int64) error {
 			}
 		}
 	}
-}
-
-func countFiles(grouped []models.GroupedPoC) int {
-	total := 0
-	for _, g := range grouped {
-		total += len(g.Files)
-	}
-	return total
 }

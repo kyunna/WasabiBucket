@@ -1,7 +1,5 @@
-// Package models defines CVE and vulnerability metadata structures.
 package models
 
-// CVEData represents parsed CVE and CVSS-related vulnerability information.
 type CVEData struct {
 	ID           string     `json:"id"`
 	Published    CustomTime `json:"published"`
@@ -36,7 +34,6 @@ type CVEData struct {
 	} `json:"weaknesses"`
 }
 
-// CVSSData holds CVSS score and risk evaluation details.
 type CVSSData struct {
 	Version      string  `json:"version"`
 	VectorString string  `json:"vectorString"`
@@ -44,7 +41,6 @@ type CVSSData struct {
 	BaseSeverity string  `json:"baseSeverity"`
 }
 
-// CVEResponse models a simplified representation of an API response containing CVE details.
 type CVEResponse struct {
 	ID                 string
 	Description        string
@@ -58,7 +54,6 @@ type CVEResponse struct {
 	CWEIDs             []string
 }
 
-// NVDResponse is used for parsing NVD API raw response format.
 type NVDResponse struct {
 	Vulnerabilities []struct {
 		Cve CVEData `json:"cve"`

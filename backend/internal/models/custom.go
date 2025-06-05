@@ -1,4 +1,3 @@
-// Package models contains shared utility types.
 package models
 
 import (
@@ -29,7 +28,6 @@ func (ct *CustomTime) UnmarshalJSON(b []byte) error {
 type StringArray []string
 
 func (a StringArray) Value() (driver.Value, error) {
-	// return json.Marshal(a)
 	return pq.Array([]string(a)).Value()
 }
 

@@ -7,39 +7,15 @@ import (
 	"wasabibucket/internal/models"
 )
 
-func storePoCData(db common.DatabaseConnector, grouped []models.GroupedPoC) error {
-	for _, g := range grouped {
-		var pocInfoID int
-		queryInfo := `
-		INSERT INTO poc_info (cve_id, source, url, author, language, verified, description)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		ON CONFLICT (cve_id, source, url) DO UPDATE SET
-			author = EXCLUDED.author,
-			language = EXCLUDED.language,
-			verified = EXCLUDED.verified,
-			description = EXCLUDED.description,
-			updated_at = CASE
-				WHEN poc_info.author IS DISTINCT FROM EXCLUDED.author OR
-					poc_info.language IS DISTINCT FROM EXCLUDED.language OR
-					poc_info.verified IS DISTINCT FROM EXCLUDED.verified OR
-					poc_info.description IS DISTINCT FROM EXCLUDED.description
-				THEN CURRENT_TIMESTAMP ELSE poc_info.updated_at END
-		RETURNING id`
-
-		err := db.QueryRow(queryInfo, g.Info.CVEID, g.Info.Source, g.Info.URL, g.Info.Author, g.Info.Language, g.Info.Verified, g.Info.Description).Scan(&pocInfoID)
+func storePoCData(db common.DatabaseConnector, pocData []models.PoCData) error {
+	for _, p := range pocData {
+		_, err := db.Exec(`
+		INSERT INTO poc_data (cve_id, source, repo_url, file_url, content)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (file_url) DO NOTHING
+		`, p.CVEID, p.Source, p.RepoURL, p.FileURL, p.Content)
 		if err != nil {
-			return fmt.Errorf("failed to insert poc_info: %v", err)
-		}
-
-		for _, f := range g.Files {
-			_, err := db.Exec(`
-			INSERT INTO poc_file (poc_info_id, path, file_url, file_ext)
-			VALUES ($1, $2, $3, $4)
-			ON CONFLICT (poc_info_id, file_url) DO NOTHING
-			`, pocInfoID, f.Path, f.FileURL, f.FileExt)
-			if err != nil {
-				return fmt.Errorf("failed to insert poc_file: %v", err)
-			}
+			return fmt.Errorf("failed to insert PoCData for %s: %w", p.FileURL, err)
 		}
 	}
 	return nil

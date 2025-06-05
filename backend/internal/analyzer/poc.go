@@ -10,44 +10,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"strconv"
+	"time"
 
 	"wasabibucket/internal/models"
 )
 
-func cleanExt(ext string) string {
-	ext = strings.ToLower(ext)
-	if len(ext) > 10 || strings.ContainsAny(ext, "%/:?=&") {
-		return "unknown"
-	}
-	if ext == "" {
-		return "none"
-	}
-	return ext
-}
-
-func mapLanguage(ext string) string {
-	switch ext {
-	case ".py":
-		return "Python"
-	case ".rb":
-		return "Ruby"
-	case ".c":
-		return "C"
-	case ".cpp":
-		return "C++"
-	case ".php":
-		return "PHP"
-	case ".sh":
-		return "Shell"
-	case ".pl":
-		return "Perl"
-	default:
-		return strings.TrimPrefix(ext, ".")
-	}
-}
-
-func fetchExploitDBPoC(cveID, baseDir string) ([]models.GroupedPoC, error) {
-	csvPath := filepath.Join(baseDir, "files_exploits.csv")	
+func fetchExploitDBPoC(cveID, baseDir string) ([]models.PoCData, error) {
+	csvPath := filepath.Join(baseDir, "files_exploits.csv")
 	file, err := os.Open(csvPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open CSV: %v", err)
@@ -61,167 +31,205 @@ func fetchExploitDBPoC(cveID, baseDir string) ([]models.GroupedPoC, error) {
 		return nil, fmt.Errorf("failed to read CSV: %v", err)
 	}
 
-	var grouped []models.GroupedPoC
+	var results []models.PoCData
+
 	for idx, row := range records {
 		if idx == 0 || len(row) < 12 {
-			continue
+			continue // skip header or malformed row
 		}
 
-		codes := strings.Split(row[11], ";")
-		found := false
-		for _, code := range codes {
+		cveList := strings.Split(row[11], ";")
+		matched := false
+		for _, code := range cveList {
 			if strings.TrimSpace(code) == cveID {
-				found = true
+				matched = true
 				break
 			}
 		}
-		if !found {
+		if !matched {
 			continue
 		}
 
 		edbID := row[0]
 		filePath := row[1]
-		description := row[2]
-		author := row[4]
-		verified := row[9] == "1"
-		fileExt := cleanExt(filepath.Ext(filePath))
-		language := mapLanguage(fileExt)
-		fileURL := "https://gitlab.com/exploit-database/exploitdb/-/raw/main/" + filePath
-		url := "https://www.exploit-db.com/exploits/" + edbID
 
-		info := models.PoCInfo{
-			CVEID:       cveID,
-			Source:      "Exploit-DB",
-			URL:         url,
-			Author:      author,
-			Language:    language,
-			Verified:    verified,
-			Description: description,
+		exploitFilePath := filepath.Join(baseDir, filePath)
+		contentBytes, err := os.ReadFile(exploitFilePath)
+		content := ""
+		if err != nil {
+			content = "[RETRY_REQUIRED: failed to read local file]"
+		} else {
+			content = string(contentBytes)
 		}
-		file := models.PoCFile{
-			Path:    filePath,
-			FileURL: fileURL,
-			FileExt: fileExt,
-		}
-		grouped = append(grouped, models.GroupedPoC{Info: info, Files: []models.PoCFile{file}})
+
+		rawURL := "https://gitlab.com/exploit-database/exploitdb/-/raw/main/" + filePath
+		repoURL := "https://www.exploit-db.com/exploits/" + edbID
+
+		results = append(results, models.PoCData{
+			CVEID:   cveID,
+			Source:  "Exploit-DB",
+			RepoURL: repoURL,
+			FileURL: rawURL,
+			Content: content,
+		})
 	}
-	return grouped, nil
+
+	return results, nil
 }
 
-func buildDescription(files []models.PoCFile, repo string) string {
-	repoLower := strings.ToLower(repo)
-	if strings.Contains(repoLower, "metasploit") {
-		return "Metasploit exploit module for CVE PoC."
+func fetchGitHubPoC(cveID, token string) ([]models.PoCData, error) {
+	maxFiles := 10
+	fileCount := 0
+
+	allowedExts := map[string]bool{
+		".py": true, ".rb": true, ".sh": true, ".yaml": true,
+		".yml": true, ".go": true, ".c": true, ".cpp": true, ".php": true,
 	}
-	for _, f := range files {
-		path := strings.ToLower(f.Path)
-		if strings.Contains(path, "nuclei") || strings.HasSuffix(path, ".yaml") {
-			return "Nuclei detection template."
+
+	var results []models.PoCData
+	searchURL := fmt.Sprintf("https://api.github.com/search/code?q=%s+in:file", url.QueryEscape(cveID))
+
+	for searchURL != "" && fileCount < maxFiles {
+		req, err := http.NewRequest("GET", searchURL, nil)
+		if err != nil {
+			return results, fmt.Errorf("request create error: %w", err)
 		}
-		if strings.HasSuffix(path, ".py") || strings.HasSuffix(path, ".rb") {
-			return "Exploit PoC script."
+		req.Header.Set("Authorization", "token "+token)
+		req.Header.Set("Accept", "application/vnd.github+json")
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return results, fmt.Errorf("request failed: %w", err)
 		}
-		if strings.Contains(path, "patch") {
-			return "Unofficial patch or mitigation for CVE."
+		defer resp.Body.Close()
+
+		// Check rate limit 
+		if throttle, wait := shouldThrottle(resp.Header); throttle {
+			time.Sleep(wait)
+			continue
 		}
+
+		// Parse result
+		var parsed models.GitHubSearchResponse
+		body, _ := io.ReadAll(resp.Body)
+		if err := json.Unmarshal(body, &parsed); err != nil {
+			return results, fmt.Errorf("json parse failed: %w", err)
+		}
+
+		var result models.GitHubSearchResponse
+		if err := json.Unmarshal(body, &result); err != nil {
+			fmt.Printf("Unmarshal error: %v\n", err)
+			break
+		}
+
+		for _, item := range parsed.Items {
+			if fileCount >= maxFiles {
+				break
+			}
+
+			if !allowedExts[filepath.Ext(item.Path)] {
+				continue
+			}
+
+			// fetch raw content
+			content, err := fetchGitHubFileContent(item, token)
+			if err != nil || content == "" {
+				continue
+			}
+
+			p := models.PoCData{
+				CVEID:   cveID,
+				Source:  "GitHub",
+				RepoURL: item.Repository.HTMLURL,
+				FileURL: item.HTMLURL,
+				Content: content,
+			}
+			results = append(results, p)
+			fileCount++
+		}
+
+		searchURL = extractNextURL(resp.Header.Get("Link"))
 	}
-	return "PoC repository for CVE."
+
+	return results, nil
 }
 
-func fetchGitHubPoC(cveID, token string) ([]models.GitHubSearchItem, error) {
-	query := url.QueryEscape(cveID + " in:file")
-	baseURL := "https://api.github.com/search/code?q=" + query
+func extractNextURL(linkHeader string) string {
+	parts := strings.Split(linkHeader, ",")
+	for _, part := range parts {
+		if strings.Contains(part, `rel="next"`) {
+			start := strings.Index(part, "<") + 1
+			end := strings.Index(part, ">")
+			if start > 0 && end > start {
+				return part[start:end]
+			}
+		}
+	}
+	return ""
+}
 
-	req, err := http.NewRequest("GET", baseURL, nil)
+func shouldThrottle(headers http.Header) (bool, time.Duration) {
+	remaining, err := strconv.Atoi(headers.Get("X-Ratelimit-Remaining"))
+
+	if err != nil || remaining <= 1 {
+		reset, err := strconv.ParseInt(headers.Get("X-Ratelimit-Reset"), 10, 64)
+		if err != nil {
+			return true, 30 * time.Second
+		}
+		return true, time.Until(time.Unix(reset, 0))
+	}
+	return false, 0
+}
+
+func fetchGitHubFileContent(item models.GitHubSearchItem, token string) (string, error) {
+	req, err := http.NewRequest("GET", item.URL, nil)
 	if err != nil {
-		return nil, err
+		return "", fmt.Errorf("failed to create request for content URL: %w", err)
 	}
 	req.Header.Set("Authorization", "token "+token)
 	req.Header.Set("Accept", "application/vnd.github+json")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, err
+		return "", fmt.Errorf("failed to fetch metadata: %w", err)
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	// fmt.Printf("%s\n",resp.Header.Get("X-Ratelimit-Remaining"))
+	if resp.StatusCode == http.StatusForbidden && resp.Header.Get("X-Ratelimit-Remaining") == "0" {
+		return "[RETRY_REQUIRED: rate limit exceeded", nil
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("metadata request failed: status %d", resp.StatusCode)
+	}
+
+	// Parse JSON for download_url
+	var meta struct {
+		DownloadURL string `json:"download_url"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&meta); err != nil {
+		return "", fmt.Errorf("failed to parse metadata: %w", err)
+	}
+	if meta.DownloadURL == "" {
+		return "", fmt.Errorf("download_url not found")
+	}
+
+	// Now fetch raw content
+	rawResp, err := http.Get(meta.DownloadURL)
 	if err != nil {
-		return nil, err
+		return "", fmt.Errorf("failed to fetch raw content: %w", err)
+	}
+	defer rawResp.Body.Close()
+
+	if rawResp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("raw content request failed: status %d", rawResp.StatusCode)
 	}
 
-	var result models.GitHubSearchResponse
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, err
-	}
-
-	return result.Items, nil
-}
-
-func fetchRepoMetadata(repoFullName, token string) (string, string) {
-	url := fmt.Sprintf("https://api.github.com/repos/%s", repoFullName)
-	req, err := http.NewRequest("GET", url, nil)
+	body, err := io.ReadAll(rawResp.Body)
 	if err != nil {
-		return "", ""
-	}
-	req.Header.Set("Authorization", "token "+token)
-	req.Header.Set("Accept", "application/vnd.github+json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", ""
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", ""
+		return "", fmt.Errorf("failed to read raw content: %w", err)
 	}
 
-	var meta models.RepoMetadata
-	if err := json.Unmarshal(body, &meta); err != nil {
-		return "", ""
-	}
-
-	return meta.Language, meta.Description
-}
-
-func buildGroupedPoC(cveID string, items []models.GitHubSearchItem, token string) []models.GroupedPoC {
-	groupMap := make(map[string][]models.PoCFile)
-	repoMeta := make(map[string]struct {
-		author   string
-		fullName string
-	})
-
-	for _, item := range items {
-		repoURL := item.Repository.HTMLURL
-		repoMeta[repoURL] = struct {
-			author   string
-			fullName string
-		}{item.Repository.Owner.Login, item.Repository.FullName}
-		file := models.PoCFile{
-			Path:    item.Path,
-			FileURL: item.HTMLURL,
-			FileExt: cleanExt(filepath.Ext(item.Path)),
-		}
-		groupMap[repoURL] = append(groupMap[repoURL], file)
-	}
-
-	var grouped []models.GroupedPoC
-	for repoURL, files := range groupMap {
-		author := repoMeta[repoURL].author
-		repoFullName := repoMeta[repoURL].fullName
-		language, description := fetchRepoMetadata(repoFullName, token)
-		info := models.PoCInfo{
-			CVEID:       cveID,
-			Source:      "GitHub",
-			URL:         repoURL,
-			Author:      author,
-			Language:    language,
-			Verified:    false,
-			Description: description,
-		}
-		grouped = append(grouped, models.GroupedPoC{Info: info, Files: files})
-	}
-	return grouped
+	return string(body), nil
 }
