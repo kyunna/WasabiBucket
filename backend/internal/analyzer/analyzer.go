@@ -2,7 +2,6 @@ package analyzer
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"time"
 
@@ -108,76 +107,138 @@ func (a *Analyzer) Run(ctx context.Context, maxAnalyzer int64) error {
 				edbResult, err := fetchExploitDBPoC(cveID, a.config.GetExploitDBPath())
 				if err != nil {
 					a.logger.Errorf("%s | Exploit-DB fetch failed: %v", cveID, err)
-					continue
-				}  else {
-					if len(edbResult) == 0 {
-						a.logger.Printf("%s | Exploit-DB PoC: No match found", cveID)
-					} else {
-						a.logger.Printf("%s | Exploit-DB PoC: %d entries", cveID, len(edbResult))
-						err = storePoCData(a.db, edbResult)
-						if err != nil {
-							a.logger.Errorf("%s | Failed to store Exploit-DB PoC data: %v", cveID, err)
-						} else {
-							a.logger.Printf("%s | Exploit-DB PoC data stored", cveID)
-						}
-					}
+				} 
+
+				if len(edbResult) == 0 {
+					a.logger.Printf("%s | Exploit-DB PoC: No match found", cveID)
 				}
+
+				a.logger.Printf("%s | Exploit-DB PoC: %d entries", cveID, len(edbResult))
+				err = storePoCData(a.db, edbResult)
+				if err != nil {
+					a.logger.Errorf("%s | Failed to store Exploit-DB PoC data: %v", cveID, err)
+				} else {
+					a.logger.Printf("%s | Exploit-DB PoC data stored", cveID)
+				}
+				
 				// 2. Github PoC 수집 및 저장
 				githubResult, err := fetchGitHubPoC(cveID, a.config.GetGitHubToken())
 				if err != nil {
 					a.logger.Errorf("%s | GitHub PoC fetch failed: %v", cveID, err)
-				} else {
-					if len(githubResult) == 0 {
-						a.logger.Printf("%s | GitHub PoC: No match found", cveID)
-					} else {
-						a.logger.Printf("%s | GitHub PoC: %d entries", cveID, len(githubResult))
-						err = storePoCData(a.db, githubResult)
-						if err != nil {
-							a.logger.Errorf("%s | Failed to store GitHub PoC data: %v", cveID, err)
-						} else {
-							a.logger.Printf("%s | GitHub PoC data stored", cveID)
-						}
-					}
+				} 
+
+				if len(githubResult) == 0 {
+					a.logger.Printf("%s | GitHub PoC: No match found", cveID)
 				}
-				// 3. Prompt 생성
-				prompt, err := generatePrompt(a.db, cveID)
+
+				a.logger.Printf("%s | GitHub PoC: %d entries", cveID, len(githubResult))
+				err = storePoCData(a.db, githubResult)
 				if err != nil {
-					if err == sql.ErrNoRows {
-						a.logger.Printf("%s | No CVE data available, deleting message", cveID)
-						if err := a.sqs.DeleteMessage(message.ReceiptHandle); err != nil {
-							a.logger.Errorf("%s | Failed to delete SQS message: %v", cveID, err)
-						} else {
-							a.logger.Printf("%s | SQS message deleted", cveID)
-						}
-						continue
-					}
-					a.logger.Errorf("%s | Prompt generation failed: %v", cveID, err)
+					a.logger.Errorf("%s | Failed to store GitHub PoC data: %v", cveID, err)
+				} else {
+					a.logger.Printf("%s | GitHub PoC data stored", cveID)
+				}
+
+				// 3. CVE 정보 쿼리(프롬프트 생성용)
+				cveInfo, err := getCVEInfo(a.db, cveID)	
+				if err != nil {
+					a.logger.Errorf("%s | CVE information loading failed: %v", cveID, err)
 					continue
 				}
 
-				// 4. LLM 호출
-				analysisCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-				analysis, err := analyzeWithChatGPT(a.openaiClient, analysisCtx, prompt)
-				cancel()
-				if err != nil {
-					a.logger.Errorf("%s | ChatGPT analysis failed: %v", cveID, err)
-					continue
+				// 4. CWE 조회
+				for _, cweID := range cveInfo.CWEIDs {
+					cweInfo, err := getCWEInfo(a.db, cweID)
+					if err != nil {
+						a.logger.Errorf("%s | Failed to get cwe info from db: %v", cweID, err)
+						continue
+					}
+
+					// If there is no CWE information in the DB, collect CWE information and generate a summary
+					if cweInfo == nil {
+						a.logger.Printf("%s | %s info not found in database. Fetching and analyzing...", cveID, cweID)
+
+						cweData, err := fetchCWEInfo(cweID)
+						if err != nil {
+							a.logger.Errorf("%s | Failed to fetch %s from MITRE: %v", cveID, cweID, err)
+							continue
+						}
+
+						err = storeCWEData(a.db, cweData)
+						if err != nil {
+							a.logger.Errorf("%s | Failed to store detailed data for %s: %v", cveID, cweID, err)
+						}
+						a.logger.Printf("%s | Detail data for %s stored successfully", cveID, cweID)
+
+						a.logger.Printf("%s | Generating prompt and requesting LLM summary for %s", cveID, cweID)
+
+						prompt, err := generatePromptCWE(cweData)
+						if err != nil {
+							a.logger.Errorf("%s | Failed to generate prompt for %s: %v", cveID, cweID, err)
+							continue
+						}
+
+						summaryCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+						summary, err := callChatGPT(a.openaiClient, summaryCtx, prompt)
+						cancel()
+						if err != nil {
+							a.logger.Errorf("%s | Failed to retrieve summary for %s from LLM: %v", cveID, cweID, err)
+							continue
+						}
+
+						parseCWEInfo, err := parseCWEInfoResponse(cweID, summary)
+						if err != nil {
+							a.logger.Errorf("%s | Failed to parse summary for %s: %v", cveID, cweID, err)
+							continue
+						}
+
+						err = storeCWEInfo(a.db, parseCWEInfo)
+						if err != nil {
+							a.logger.Errorf("%s | Failed to store summary for %s: %v", cveID, cweID, err)
+						}
+						a.logger.Printf("%s | Summary for %s stored successfully", cveID, cweID)
+					}
 				}
-				a.logger.Printf("%s | ChatGPT response received", cveID)
+
+				// 3. Prompt 생성
+				// prompt, err := generatePrompt(a.db, cveID)
+				// if err != nil {
+				// 	if err == sql.ErrNoRows {
+				// 		a.logger.Printf("%s | No CVE data available, deleting message", cveID)
+				// 		if err := a.sqs.DeleteMessage(message.ReceiptHandle); err != nil {
+				// 			a.logger.Errorf("%s | Failed to delete SQS message: %v", cveID, err)
+				// 		} else {
+				// 			a.logger.Printf("%s | SQS message deleted", cveID)
+				// 		}
+				// 		continue
+				// 	}
+				// 	a.logger.Errorf("%s | Prompt generation failed: %v", cveID, err)
+				// 	continue
+				// }
+
+				// 4. LLM 호출
+				// analysisCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+				// analysis, err := analyzeWithChatGPT(a.openaiClient, analysisCtx, prompt)
+				// cancel()
+				// if err != nil {
+				// 	a.logger.Errorf("%s | ChatGPT analysis failed: %v", cveID, err)
+				// 	continue
+				// }
+				// a.logger.Printf("%s | ChatGPT response received", cveID)
 
 
 				// 5. 분석 결과 저장
-				parsedAnalysis, err := parseResponse(analysis)
-				if err != nil {
-					a.logger.Errorf("%s | Failed to parse AI response: %v", cveID, err)
-					continue
-				}
-
-				if err := storeAnalysisResult(a.db, cveID, parsedAnalysis); err != nil {
-					a.logger.Errorf("%s | Failed to store analysis result: %v", cveID, err)
-					continue
-				}
-				a.logger.Printf("%s | Analysis result stored", cveID)
+				// parsedAnalysis, err := parseResponse(analysis)
+				// if err != nil {
+				// 	a.logger.Errorf("%s | Failed to parse AI response: %v", cveID, err)
+				// 	continue
+				// }
+				//
+				// if err := storeAnalysisResult(a.db, cveID, parsedAnalysis); err != nil {
+				// 	a.logger.Errorf("%s | Failed to store analysis result: %v", cveID, err)
+				// 	continue
+				// }
+				// a.logger.Printf("%s | Analysis result stored", cveID)
 
 				// 6. SQS message 삭제
 				if err := a.sqs.DeleteMessage(message.ReceiptHandle); err != nil {

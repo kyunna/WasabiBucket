@@ -29,6 +29,22 @@ CVE(Common Vulnerabilities and Exposures) 데이터를 LLM(Large Language Model)
 - **Collector**: NVD API에서 최신 CVE 데이터를 수집하여 DB 저장 및 SQS 전송
 - **Analyzer**: SQS 메시지를 수신해 LLM 분석 및 PoC 정보 수집 후 DB에 저장
 
+#### PoC 수집
+- Analyzer에서 CVE 분석 시 관련 PoC 코드 검색
+- 내부 로컬에 저장된 Exploit-db 검색
+- Github에 공개된 PoC 검색
+
+#### CWE 조회
+- CVE 분석을 위한 CWE 관련 정보 조회
+- DB에 저장된 데이터가 없을 경우 MITRE에서 CWE 정보 수집 및 요약(한/영)
+- 한글은 프론트엔드 출력용, 영문은 프롬프트 및 RAG 구축용
+
+#### 기타 수집 요소(구현검토)
+- 기술 문서
+- 블로그
+- 뉴스
+- 벤더 공지 등
+
 ### Frontend
 - Vue.js 기반 UI로 CVE 및 분석 결과 조회 제공
 
@@ -49,46 +65,3 @@ CVE(Common Vulnerabilities and Exposures) 데이터를 LLM(Large Language Model)
 | **데이터베이스** | Amazon RDS (PostgreSQL) | 구조화된 CVE, 분석 결과, PoC 정보 저장소 |
 | **프론트엔드** | S3 | CVE 검색 및 조회 제공 웹사이트 호스팅 |
 
-
-## ✅ 개발 현황 및 향후 계획
-
-### 🎯 목표
-- CVE 관련 데이터를 구조화하여 수집 및 분석
-- 이 데이터를 기반으로 RAG(Retrieval-Augmented Generation) 챗봇 시스템 구현
-
-### 🧱 아키텍처 개요
-
-1. **PostgreSQL**  
-   - `cve_data`, `analysis_data`, `poc_info`, `poc_file` 등 중심 테이블
-   - 향후 `reference_summary` 테이블 추가 예정 (링크 요약 저장용)
-
-2. **LLM (GPT-4 기반)**  
-   - CVE 요약, 기술 설명, 대응 방안 등 분석 자동화
-   - 향후: PoC 코드 요약, 참조 링크 요약에도 적용 예정
-
-3. **Vector DB (예정)**  
-   - 구조화된 데이터를 자연어 문장으로 변환해 벡터 임베딩
-   - 유사도 기반 검색으로 LLM 응답 품질 향상
-
-4. **챗봇 (예정)**  
-   - 사용자의 질문 + Vector DB 검색 결과 → GPT-4 프롬프트로 조합하여 응답 생성
-
----
-
-### 🔧 현재 집중 과제
-
-#### 1. PoC 코드 본문 수집 및 저장
-- `poc_file` 테이블에 실제 코드 본문 또는 요약 저장 기능 설계
-- 핵심 블록만 추출하거나 LLM을 활용한 요약도 고려
-
-#### 2. Reference 링크 콘텐츠 요약
-- CVE의 공식 reference 링크를 크롤링하여 콘텐츠 요약
-- `reference_summary` 테이블 신설 예정
-
----
-
-### 🔄 향후 계획
-
-- 위 데이터를 기반으로 임베딩 파이프라인 구축
-- Qdrant 또는 Weaviate 기반 Vector DB와 연동
-- 자연어 질의 응답이 가능한 RAG 챗봇 MVP 완성

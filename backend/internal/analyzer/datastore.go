@@ -1,6 +1,7 @@
 package analyzer
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"wasabibucket/internal/common"
@@ -17,6 +18,79 @@ func storePoCData(db common.DatabaseConnector, pocData []models.PoCData) error {
 		if err != nil {
 			return fmt.Errorf("failed to insert PoCData for %s: %w", p.FileURL, err)
 		}
+	}
+	return nil
+}
+
+func storeCWEData(db common.DatabaseConnector, data *models.CWEData) error {
+	if data == nil {
+		return fmt.Errorf("CWEData is nil")
+	}
+
+	query := `
+		INSERT INTO cwe_data (
+			cwe_id,
+			name,
+			description,
+			extended_description,
+			likelihood,
+			common_consequences,
+			updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+		ON CONFLICT (cwe_id) DO UPDATE SET
+			name = EXCLUDED.name,
+			description = EXCLUDED.description,
+			extended_description = EXCLUDED.extended_description,
+			likelihood = EXCLUDED.likelihood,
+			common_consequences = EXCLUDED.common_consequences,
+			updated_at = CURRENT_TIMESTAMP
+	`
+
+	commonConsequencesJSON, err := json.Marshal(data.CommonConsequences)
+	if err != nil {
+		return fmt.Errorf("failed to marshal CommonConsequences: %w", err)
+	}
+
+	_, err = db.Exec(
+		query,
+		fmt.Sprintf("CWE-%s", data.ID),
+		data.Name,
+		data.Description,
+		data.ExtendedDescription,
+		data.LikelihoodOfExploit,
+		commonConsequencesJSON,
+	)
+
+	if err != nil {
+		return fmt.Errorf("failed to store CWE data: %w", err)
+	}
+
+	return nil
+}
+
+func storeCWEInfo(db common.DatabaseConnector, info *models.CWEInfo) error {
+	if info == nil {
+		return fmt.Errorf("CWEInfo is nil")
+	}
+
+	query := `
+			INSERT INTO cwe_info (
+			cwe_id,
+			summary_en,
+			summary_ko,
+			source_url,
+			updated_at
+		)
+		VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+		ON CONFLICT (cwe_id) DO UPDATE SET
+			summary_en = EXCLUDED.summary_en,
+			summary_ko = EXCLUDED.summary_ko,
+			source_url = EXCLUDED.source_url,
+			updated_at = CURRENT_TIMESTAMP
+	`
+	_, err := db.Exec(query, info.CWEID, info.SummaryEn, info.SummaryKo, info.SourceURL)
+	if err != nil {
+		return fmt.Errorf("failed to store CWE info: %w", err)
 	}
 	return nil
 }

@@ -13,8 +13,54 @@ import (
 	"github.com/sashabaranov/go-openai"
 )
 
+func generatePromptCWE(cweData *models.CWEData) (string, error) {
+	if cweData == nil {
+		return "", fmt.Errorf("input CWEData is nil")
+	}
+
+	var sb strings.Builder
+	sb.WriteString(`As a cybersecurity expert, summarize the following CWE information for dual usage:
+
+	1. "summaryEn": A precise, technical summary in English, intended for internal use in CVE analysis and retrieval-augmented generation (RAG). Use formal language. Max 4 sentences.
+
+	2. "summaryKo": A short, intuitive summary in Korean that can be shown to general users on the frontend. Focus on clarity and brevity (1–2 sentences).
+
+	Provide a valid JSON response in the following format, without markdown code block:
+
+	{
+		"summaryEn": "...",
+		"summaryKo": "..."
+	}
+	`) 
+
+	sb.WriteString(fmt.Sprintf("CWE ID: CWE-%s\n", cweData.ID))
+	sb.WriteString(fmt.Sprintf("Name: %s\n", cweData.Name))
+	sb.WriteString(fmt.Sprintf("Description: %s\n", cweData.Description))
+
+	if cweData.ExtendedDescription != "" {
+		sb.WriteString(fmt.Sprintf("\nExtended Description: %s\n", cweData.ExtendedDescription))
+	}
+
+	if cweData.LikelihoodOfExploit != "" {
+		sb.WriteString(fmt.Sprintf("\nLikelihood of Exploit: %s\n", cweData.LikelihoodOfExploit))
+	}
+
+	if len(cweData.CommonConsequences) > 0 {
+		sb.WriteString("\nCommon Consequences:\n")
+		for _, cc := range cweData.CommonConsequences {
+			sb.WriteString(fmt.Sprintf("- Scope: %s\n", strings.Join(cc.Scope, ", ")))
+			sb.WriteString(fmt.Sprintf("  Impact: %s\n", strings.Join(cc.Impact, ", ")))
+			if cc.Note != "" {
+				sb.WriteString(fmt.Sprintf("  Note: %s\n", cc.Note))
+			}
+		}
+	}
+
+	return sb.String(), nil
+}
+
 func generatePrompt(db common.DatabaseConnector, cveID string) (string, error) {
-	var cve models.CVEResponse
+	var cve models.CVEInfo
 	var affectedProducts, cweIDs pq.StringArray
 
 	query := `
@@ -114,7 +160,7 @@ func generatePrompt(db common.DatabaseConnector, cveID string) (string, error) {
 	return prompt, nil
 }
 
-func analyzeWithChatGPT(openaiClient common.OpenAIClient, ctx context.Context, prompt string) (string, error) {
+func callChatGPT(openaiClient common.OpenAIClient, ctx context.Context, prompt string) (string, error)  {
 	resp, err := openaiClient.CreateChatCompletion(
 		ctx,
 		openai.ChatCompletionRequest{
@@ -167,4 +213,30 @@ func parseResponse(response string) (*models.AIAnalysis, error) {
 	// fmt.Printf("Technical Details: %s\n", analysis.TechnicalDetails)
 
 	return &analysis, nil
+}
+
+func parseCWEInfoResponse(cweID string, resp string) (*models.CWEInfo, error) {
+	// Remove ```json block if present
+	if startIdx := strings.Index(resp, "```json"); startIdx != -1 {
+		resp = resp[startIdx+7:]
+		if endIdx := strings.Index(resp, "```"); endIdx != -1 {
+			resp = resp[:endIdx]
+		}
+	}
+
+	// Parse JSON content 
+	var result struct {
+		SummaryEn string `json:"summaryEn"`
+		SummaryKo string `json:"summaryKo"`
+	}
+	if err := json.Unmarshal([]byte(resp), &result); err != nil {
+		return nil, fmt.Errorf("failed to parse CWE summary resp: %w", err)
+	}
+
+	return &models.CWEInfo{
+		CWEID: cweID,
+		SummaryEn: result.SummaryEn,
+		SummaryKo: result.SummaryKo,
+		SourceURL: fmt.Sprintf("https://cwe.mitre.org/data/definitions/%s.html", strings.TrimPrefix(cweID, "CWE-")),
+	}, nil
 }
