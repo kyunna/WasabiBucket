@@ -1,7 +1,7 @@
 package models
 
 // NVD model: Metadata and detailed information of CVE
-type CVEData struct {
+type NVDCVEData struct {
 	ID           string     `json:"id"`
 	Published    CustomTime `json:"published"`
 	LastModified CustomTime `json:"lastModified"`
@@ -44,7 +44,7 @@ type CVSSData struct {
 
 type NVDResponse struct {
 	Vulnerabilities []struct {
-		Cve CVEData `json:"cve"`
+		Cve NVDCVEData `json:"cve"`
 	} `json:"vulnerabilities"`
 	ResultsPerPage int `json:"resultsPerPage"`
 	StartIndex     int `json:"startIndex"`
@@ -52,7 +52,7 @@ type NVDResponse struct {
 }
 
 // PostgreSQL model: Stores CVE data in the database
-type CVEInfo struct {
+type CVEData struct {
 	ID                 string
 	Description        string
 	CvssV3Vector       string
@@ -63,4 +63,14 @@ type CVEInfo struct {
 	CvssV4BaseSeverity string
 	AffectedProducts   []string
 	CWEIDs             []string
+}
+
+type CVEInfo struct {
+	AnalysisSummary   string   `json:"analysis_summary"`
+	AffectedSystems   string   `json:"affected_systems"`
+	AffectedProducts  []string `json:"affected_products"` // Stored using custom StringArray type
+	VulnerabilityType string   `json:"vulnerability_type"`
+	RiskLevel         int      `json:"risk_level"`
+	Recommendation    string   `json:"recommendation"`
+	TechnicalDetails  string   `json:"technical_details"`
 }

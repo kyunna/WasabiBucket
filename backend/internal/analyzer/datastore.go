@@ -95,7 +95,7 @@ func storeCWEInfo(db common.DatabaseConnector, info *models.CWEInfo) error {
 	return nil
 }
 
-func storeAnalysisResult(db common.DatabaseConnector, cveID string, analysis *models.AIAnalysis) error {
+func storeAnalysisResult(db common.DatabaseConnector, cveID string, analysis *models.CVEInfo) error {
 	query := `
         INSERT INTO analysis_data (
             cve_id, analysis_summary, affected_systems, affected_products, 

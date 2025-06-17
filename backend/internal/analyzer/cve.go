@@ -10,9 +10,9 @@ import (
 	"github.com/lib/pq"
 )
 
-func getCVEInfo(db common.DatabaseConnector, cveID string) (*models.CVEInfo, error) {
+func getCVEData(db common.DatabaseConnector, cveID string) (*models.CVEData, error) {
 	var affectedProducts, cweIDs pq.StringArray
-	info := &models.CVEInfo{ID: cveID}
+	info := &models.CVEData{ID: cveID}
 
 	query := `
 		SELECT 

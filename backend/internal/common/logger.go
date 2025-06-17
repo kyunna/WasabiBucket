@@ -6,10 +6,12 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
 type Logger interface {
+	LogPhaseStart(id string, phase string)
 	Print(v ...interface{})
 	Printf(format string, v ...interface{})
 	Println(v ...interface{})
@@ -122,4 +124,9 @@ func (f *FileLoggerInitializer) InitLogger(appName string, config ConfigLoader) 
 		logDir:      logDir,
 		currentDate: currentDate,
 	}, nil
+}
+
+func (f *FileLogger) LogPhaseStart(id string, phase string) {
+	f.checkDate()
+	f.infoLogger.Printf("%s | ===== [%s] =====", id, strings.ToUpper(phase))
 }

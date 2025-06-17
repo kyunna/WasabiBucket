@@ -2,6 +2,7 @@ package analyzer
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
 
@@ -71,7 +72,7 @@ func (a *Analyzer) Close() error {
 }
 
 func (a *Analyzer) Run(ctx context.Context, maxAnalyzer int64) error {
-	a.logger.Printf("Start analyzer\n")
+	a.logger.Printf("Start analyzer")
 
 	const (
 		defaultInterval    = 60 * time.Second
@@ -101,80 +102,83 @@ func (a *Analyzer) Run(ctx context.Context, maxAnalyzer int64) error {
 
 			for _, message := range messages {
 				cveID := *message.Body
-				a.logger.Printf("%s | Start analyzing", cveID)
 
-				// 1. Exploit-DB PoC 수집 및 저장
+				a.logger.Printf("%s | >>>>> Start analysis <<<<<", cveID)
+
+				// Step 1. Collect PoC (Exploit-DB, GitHub)
+				a.logger.LogPhaseStart(cveID, "PoC Collection")
+
 				edbResult, err := fetchExploitDBPoC(cveID, a.config.GetExploitDBPath())
 				if err != nil {
-					a.logger.Errorf("%s | Exploit-DB fetch failed: %v", cveID, err)
-				} 
-
-				if len(edbResult) == 0 {
-					a.logger.Printf("%s | Exploit-DB PoC: No match found", cveID)
-				}
-
-				a.logger.Printf("%s | Exploit-DB PoC: %d entries", cveID, len(edbResult))
-				err = storePoCData(a.db, edbResult)
-				if err != nil {
-					a.logger.Errorf("%s | Failed to store Exploit-DB PoC data: %v", cveID, err)
+					a.logger.Errorf("%s | [PoC:Exploit-DB] fetch failed: %v", cveID, err)
+				} else if len(edbResult) == 0 {
+					a.logger.Printf("%s | [PoC:Exploit-DB] no entries found", cveID)
 				} else {
-					a.logger.Printf("%s | Exploit-DB PoC data stored", cveID)
+					a.logger.Printf("%s | [PoC:Exploit-DB] %d entries found", cveID, len(edbResult))
+					if err := storePoCData(a.db, edbResult); err != nil {
+						a.logger.Errorf("%s | [PoC:Exploit-DB] failed to store data: %v", cveID, err)
+					} else {
+						a.logger.Printf("%s | [PoC:Exploit-DB] data stored", cveID)
+					}
 				}
-				
-				// 2. Github PoC 수집 및 저장
+
 				githubResult, err := fetchGitHubPoC(cveID, a.config.GetGitHubToken())
 				if err != nil {
-					a.logger.Errorf("%s | GitHub PoC fetch failed: %v", cveID, err)
-				} 
-
-				if len(githubResult) == 0 {
-					a.logger.Printf("%s | GitHub PoC: No match found", cveID)
-				}
-
-				a.logger.Printf("%s | GitHub PoC: %d entries", cveID, len(githubResult))
-				err = storePoCData(a.db, githubResult)
-				if err != nil {
-					a.logger.Errorf("%s | Failed to store GitHub PoC data: %v", cveID, err)
+					a.logger.Errorf("%s | [PoC:GitHub] fetch failed: %v", cveID, err)
+				} else if len(githubResult) == 0 {
+					a.logger.Printf("%s | [PoC:GitHub] no entries found", cveID)
 				} else {
-					a.logger.Printf("%s | GitHub PoC data stored", cveID)
+					a.logger.Printf("%s | [PoC:GitHub] %d entries found", cveID, len(githubResult))
+					if err := storePoCData(a.db, githubResult); err != nil {
+						a.logger.Errorf("%s | [PoC:GitHub] failed to store data: %v", cveID, err)
+					} else {
+						a.logger.Printf("%s | [PoC:GitHub] data stored", cveID)
+					}
 				}
 
-				// 3. CVE 정보 쿼리(프롬프트 생성용)
-				cveInfo, err := getCVEInfo(a.db, cveID)	
+				// Step 2. Process CWE information
+				a.logger.LogPhaseStart(cveID, "CWE Processing")
+
+				cveInfo, err := getCVEData(a.db, cveID)	
 				if err != nil {
-					a.logger.Errorf("%s | CVE information loading failed: %v", cveID, err)
+					if err == sql.ErrNoRows {
+						a.logger.Printf("%s | [CVE] no data available, deleting message", cveID)
+						if err := a.sqs.DeleteMessage(message.ReceiptHandle); err != nil {
+							a.logger.Errorf("%s | [SQS] Failed to delete SQS message: %v", cveID, err)
+						} else {
+							a.logger.Printf("%s | [SQS] SQS message deleted", cveID)
+						}
+						continue
+					}
+					a.logger.Errorf("%s | [CVE] data load failed: %v", cveID, err)
 					continue
 				}
 
-				// 4. CWE 조회
 				for _, cweID := range cveInfo.CWEIDs {
 					cweInfo, err := getCWEInfo(a.db, cweID)
+					id := extractID(cweID)
 					if err != nil {
-						a.logger.Errorf("%s | Failed to get cwe info from db: %v", cweID, err)
+						a.logger.Errorf("%s | [CWE:%s] DB lookup failed: %v", cveID, id, err)
 						continue
 					}
-
-					// If there is no CWE information in the DB, collect CWE information and generate a summary
 					if cweInfo == nil {
-						a.logger.Printf("%s | %s info not found in database. Fetching and analyzing...", cveID, cweID)
+						a.logger.Printf("%s | [CWE:%s] not found in DB, fetching from MITRE...", cveID, id)
 
 						cweData, err := fetchCWEInfo(cweID)
 						if err != nil {
-							a.logger.Errorf("%s | Failed to fetch %s from MITRE: %v", cveID, cweID, err)
+							a.logger.Errorf("%s | [CWE:%s] fetch failed: %v", cveID, id, err)
 							continue
 						}
 
 						err = storeCWEData(a.db, cweData)
 						if err != nil {
-							a.logger.Errorf("%s | Failed to store detailed data for %s: %v", cveID, cweID, err)
+							a.logger.Errorf("%s | [CWE:%s] failed to store detailed data: %v", cveID, id, err)
 						}
-						a.logger.Printf("%s | Detail data for %s stored successfully", cveID, cweID)
-
-						a.logger.Printf("%s | Generating prompt and requesting LLM summary for %s", cveID, cweID)
+						a.logger.Printf("%s | [CWE:%s] detail data stored", cveID, id) 
 
 						prompt, err := generatePromptCWE(cweData)
 						if err != nil {
-							a.logger.Errorf("%s | Failed to generate prompt for %s: %v", cveID, cweID, err)
+							a.logger.Errorf("%s | [CWE:%s] prompt generation failed: %v", cveID, id, err)
 							continue
 						}
 
@@ -182,72 +186,73 @@ func (a *Analyzer) Run(ctx context.Context, maxAnalyzer int64) error {
 						summary, err := callChatGPT(a.openaiClient, summaryCtx, prompt)
 						cancel()
 						if err != nil {
-							a.logger.Errorf("%s | Failed to retrieve summary for %s from LLM: %v", cveID, cweID, err)
+							a.logger.Errorf("%s | [CWE:%s] LLM request failed: %v", cveID, id, err)
 							continue
 						}
 
-						parseCWEInfo, err := parseCWEInfoResponse(cweID, summary)
+						parsed, err := parseCWEInfoResponse(cweID, summary)
 						if err != nil {
-							a.logger.Errorf("%s | Failed to parse summary for %s: %v", cveID, cweID, err)
+							a.logger.Errorf("%s | [CWE:%s] failed to parse LLM response: %v", cveID, id, err)
 							continue
 						}
 
-						err = storeCWEInfo(a.db, parseCWEInfo)
+						err = storeCWEInfo(a.db, parsed)
 						if err != nil {
-							a.logger.Errorf("%s | Failed to store summary for %s: %v", cveID, cweID, err)
+							a.logger.Errorf("%s | [CWE:%s] failed to store summary data: %v", cveID, id, err)
 						}
-						a.logger.Printf("%s | Summary for %s stored successfully", cveID, cweID)
+						a.logger.Printf("%s | [CWE:%s] summary stored", cveID, id)
+					} else {
+						a.logger.Printf("%s | [CWE:%s] summary loaded" ,cveID, id)
 					}
 				}
 
-				// 3. Prompt 생성
-				// prompt, err := generatePrompt(a.db, cveID)
-				// if err != nil {
-				// 	if err == sql.ErrNoRows {
-				// 		a.logger.Printf("%s | No CVE data available, deleting message", cveID)
-				// 		if err := a.sqs.DeleteMessage(message.ReceiptHandle); err != nil {
-				// 			a.logger.Errorf("%s | Failed to delete SQS message: %v", cveID, err)
-				// 		} else {
-				// 			a.logger.Printf("%s | SQS message deleted", cveID)
-				// 		}
-				// 		continue
-				// 	}
-				// 	a.logger.Errorf("%s | Prompt generation failed: %v", cveID, err)
-				// 	continue
-				// }
+				// Step 3. Analyze CVE
+				a.logger.LogPhaseStart(cveID, "CVE Prompt & Analysis")
 
-				// 4. LLM 호출
-				// analysisCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-				// analysis, err := analyzeWithChatGPT(a.openaiClient, analysisCtx, prompt)
-				// cancel()
-				// if err != nil {
-				// 	a.logger.Errorf("%s | ChatGPT analysis failed: %v", cveID, err)
-				// 	continue
-				// }
-				// a.logger.Printf("%s | ChatGPT response received", cveID)
+				prompt, err := generatePromptCVE(a.db, cveID)
+				if err != nil {
+					if err == sql.ErrNoRows {
+						a.logger.Printf("%s | [CVE] no data available, deleting message", cveID)
+						if err := a.sqs.DeleteMessage(message.ReceiptHandle); err != nil {
+							a.logger.Errorf("%s | [SQS] Failed to delete SQS message: %v", cveID, err)
+						} else {
+							a.logger.Printf("%s | [SQS] SQS message deleted", cveID)
+						}
+						continue
+					}
+					a.logger.Errorf("%s | [CVE] prompt generation failed: %v", cveID, err)
+					continue
+				}
+				a.logger.Printf("%s | [CVE] prompt generated", cveID)
 
+				analysisCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+				analysis, err := callChatGPT(a.openaiClient, analysisCtx, prompt)
+				cancel()
+				if err != nil {
+					a.logger.Errorf("%s | [CVE] LLM request failed: %v", cveID, err)
+					continue
+				}
+				a.logger.Printf("%s | [CVE] LLM response received", cveID)
 
-				// 5. 분석 결과 저장
-				// parsedAnalysis, err := parseResponse(analysis)
-				// if err != nil {
-				// 	a.logger.Errorf("%s | Failed to parse AI response: %v", cveID, err)
-				// 	continue
-				// }
-				//
-				// if err := storeAnalysisResult(a.db, cveID, parsedAnalysis); err != nil {
-				// 	a.logger.Errorf("%s | Failed to store analysis result: %v", cveID, err)
-				// 	continue
-				// }
-				// a.logger.Printf("%s | Analysis result stored", cveID)
-
-				// 6. SQS message 삭제
-				if err := a.sqs.DeleteMessage(message.ReceiptHandle); err != nil {
-					a.logger.Errorf("%s | Failed to delete SQS message: %v", cveID, err)
-				} else {
-					a.logger.Printf("%s | SQS message deleted", cveID)
+				parsed, err := parseCVEAnalysisResponse(analysis)
+				if err != nil {
+					a.logger.Errorf("%s | [CVE] failed to parse LLM response: %v", cveID, err)
+					continue
 				}
 
-				a.logger.Printf("%s | Analysis complete", cveID)
+				if err := storeAnalysisResult(a.db, cveID, parsed); err != nil {
+					a.logger.Errorf("%s | [CVE] failed to store analysis result: %v", cveID, err)
+					continue
+				}
+				a.logger.Printf("%s | [CVE] analysis result stored", cveID)
+
+				if err := a.sqs.DeleteMessage(message.ReceiptHandle); err != nil {
+					a.logger.Errorf("%s | [SQS] Failed to delete SQS message: %v", cveID, err)
+				} else {
+					a.logger.Printf("%s | [SQS] SQS message deleted", cveID)
+				}
+
+				a.logger.Printf("%s | <<<<< analysis complete >>>>>", cveID)
 				ticker.Reset(shortInterval)
 			}
 		}

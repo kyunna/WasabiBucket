@@ -59,10 +59,11 @@ func generatePromptCWE(cweData *models.CWEData) (string, error) {
 	return sb.String(), nil
 }
 
-func generatePrompt(db common.DatabaseConnector, cveID string) (string, error) {
-	var cve models.CVEInfo
+func generatePromptCVE(db common.DatabaseConnector, cveID string) (string, error) {
+	var cve models.CVEData
 	var affectedProducts, cweIDs pq.StringArray
 
+	// 1. Load CVE info
 	query := `
 		SELECT 
 		cve_id, 
@@ -96,6 +97,8 @@ func generatePrompt(db common.DatabaseConnector, cveID string) (string, error) {
 	cve.AffectedProducts = []string(affectedProducts)
 	cve.CWEIDs = []string(cweIDs)
 
+
+	// 2. Compose CVSS info
 	var cvssInfo string
 	if cve.CvssV3Vector != "" || cve.CvssV3BaseScore > 0 {
 		cvssInfo = fmt.Sprintf(`
@@ -111,6 +114,7 @@ func generatePrompt(db common.DatabaseConnector, cveID string) (string, error) {
 		cvssInfo = "No CVSS information available"
 	}
 
+	// 3. Compose affected product info
 	var affectedProductsInfo string
 	if len(cve.AffectedProducts) > 0 {
 		affectedProductsInfo = fmt.Sprintf("Affected Products: %s", strings.Join(cve.AffectedProducts, ", "))
@@ -118,43 +122,80 @@ func generatePrompt(db common.DatabaseConnector, cveID string) (string, error) {
 		affectedProductsInfo = "No affected products information available"
 	}
 
+	// 4. Fetch CWE summaries
+	var cweSummaries []string
+	for _, cweID := range cve.CWEIDs {
+		var summary string
+		err := db.QueryRow(`SELECT summary_en FROM cwe_info WHERE cwe_id = $1`, cweID).Scan(&summary)
+		if err == nil && summary != "" {
+			cweSummaries = append(cweSummaries, fmt.Sprintf("%s: %s", cweID, summary))
+		}
+	}
+	cweInfo := "No CWE summaries available"
+	if len(cweSummaries) > 0 {
+		cweInfo = "CWE Summaries:\n" + strings.Join(cweSummaries, "\n")
+	}
+
+	// 5. Count PoC data
+	var githubCount, edbCount int
+	_ = db.QueryRow(`SELECT COUNT(*) FROM poc_data WHERE cve_id = $1 AND source = 'GitHub'`, cveID).Scan(&githubCount)
+	_ = db.QueryRow(`SELECT COUNT(*) FROM poc_data WHERE cve_id = $1 AND source = 'Exploit-DB'`, cveID).Scan(&edbCount)
+
+	var pocInfo string
+	if githubCount+edbCount == 0 {
+		pocInfo = "No public proof-of-concept (PoC) available."
+	} else {
+		pocInfo = fmt.Sprintf("PoC Availability:\n- GitHub: %d file(s)\n- Exploit-DB: %d entry(ies)", githubCount, edbCount)
+	}
+
+	// 6. Compose final prompt
 	prompt := fmt.Sprintf(`
-	As a cybersecurity expert, analyze vulnerability %s based on the provided information. Respond in JSON format:
+	As a cybersecurity expert, analyze the following vulnerability (%s) and provide a comprehensive summary in JSON format.
+
+	Your response must be structured as:
 
 	{
-	"analysis_summary": "Comprehensive analysis considering CVSS score, affected systems, and vulnerability type. (Max 5 sentences)",
-	"affected_systems": "Brief description of impacted systems/software based on the CVE description (e.g., 'Linux kernel-based systems', 'WordPress plugin WPFactory Helper', 'Draytek Vigor 3910 router')",
-	"affected_products": ["List", "of", "specific", "affected", "product", "names", "based", "on", "CPE", "information"],
-	"vulnerability_type": "Category or type of vulnerability in English",
-	"risk_level": 0, // 0: Low, 1: Medium, 2: High, based on CVSS score and severity
-	"recommendation": "Specific actions to mitigate or address the vulnerability (2-3 sentences)",
-	"technical_details": "Technical specifics, attack vectors, and potential impact if exploited (3-4 sentences)"
+		"analysis_summary": "...",        // (Korean) Summary of the vulnerability (max 5 sentences)
+		"affected_systems": "...",        // (Korean) Impacted systems/software types
+		"affected_products": ["..."],     // (English) Specific product names (CPE-based)
+		"vulnerability_type": "...",      // (English) Vulnerability category (e.g., XSS, SQLi)
+		"risk_level": 0,                  // (Integer) 0 = Low, 1 = Medium, 2 = High
+		"recommendation": "...",          // (Korean) Specific mitigation steps (2–3 sentences)
+		"technical_details": "..."        // (Korean) Technical explanation & impact (3–4 sentences)
 	}
 
 	Guidelines:
-	1. Integrate all provided data (CVSS score, affected products, CWE IDs) for a professional analysis.
-	2. 'analysis_summary': Include vulnerability significance, potential impact, and technical characteristics.
-	3. 'affected_systems': Describe the types of systems or software affected, based on the CVE description.
-	4. 'affected_products': List specific product names affected, based on the CPE information provided.
-	5. 'technical_details': Be specific and technical. Include potential impact and attack vectors. Do not mention the CVE ID in this field.
-	6. 'recommendation': Provide actionable and concrete measures.
-	7. 'vulnerability_type': Use standard cybersecurity terms in English.
-	8. For all fields except 'analysis_summary', avoid mentioning the CVE ID directly.
+	1. Use all available information below: CVE details, CVSS score, affected products, CWE summaries, and PoC availability.
+	2. Be concise yet technical. Emphasize practical impact and exploitability.
+	3. Use Korean for all fields except 'vulnerability_type' and 'affected_products'.
+	4. Do NOT include the CVE ID in any field except 'analysis_summary'.
+	5. Prioritize CWE summaries to understand vulnerability type and consequences.
+	6. Consider PoC availability when judging risk level and recommending mitigations.
+	7. If public PoC is available, reflect this in the 'analysis_summary' as a factor of exploit likelihood.
 
-	Description: %s
+	---
 
+	CVE Description:
 	%s
 
+	CVSS Information:
 	%s
-	CWE IDs: %s
 
-	Provide a valid JSON response. Use Korean for all fields except 'vulnerability_type' and 'affected_products'.
+	Affected Products:
+	%s
+
+	Relevant CWE Summaries:
+	%s
+
+	Public Proof-of-Concept (PoC) Availability:
+	%s
 	`,
 		cve.ID,
 		cve.Description,
 		cvssInfo,
 		affectedProductsInfo,
-		strings.Join(cve.CWEIDs, ", "),
+		cweInfo,
+		pocInfo,
 	)
 
 	return prompt, nil
@@ -181,7 +222,7 @@ func callChatGPT(openaiClient common.OpenAIClient, ctx context.Context, prompt s
 	return resp.Choices[0].Message.Content, nil
 }
 
-func parseResponse(response string) (*models.AIAnalysis, error) {
+func parseCVEAnalysisResponse(response string) (*models.CVEInfo, error) {
 	// ```json으로 시작하는 부분 찾기
 	startIndex := strings.Index(response, "```json")
 	if startIndex == -1 {
@@ -197,7 +238,7 @@ func parseResponse(response string) (*models.AIAnalysis, error) {
 	jsonContent = jsonContent[:endIndex]
 
 	// 추출된 JSON 파싱
-	var analysis models.AIAnalysis
+	var analysis models.CVEInfo
 	err := json.Unmarshal([]byte(jsonContent), &analysis)
 	if err != nil {
 		return nil, fmt.Errorf("AI 응답 파싱 실패: %w", err)

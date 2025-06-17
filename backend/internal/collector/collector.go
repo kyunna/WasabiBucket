@@ -215,7 +215,7 @@ func fetchCVEData(config common.NVDConfig, startDate, endDate time.Time, startIn
 	return &nvdResp, nil
 }
 
-func storeCVEData(db common.DatabaseConnector, cve models.CVEData) (bool, error) {
+func storeCVEData(db common.DatabaseConnector, cve models.NVDCVEData) (bool, error) {
 	query := `
 	WITH 
 	changes AS (
@@ -300,7 +300,7 @@ func storeCVEData(db common.DatabaseConnector, cve models.CVEData) (bool, error)
 	return changed, nil
 }
 
-func getDescription(cve models.CVEData) string {
+func getDescription(cve models.NVDCVEData) string {
 	for _, desc := range cve.Descriptions {
 		if desc.Lang == "en" {
 			return desc.Value
@@ -309,49 +309,49 @@ func getDescription(cve models.CVEData) string {
 	return ""
 }
 
-func getCVSSV3Vector(cve models.CVEData) string {
+func getCVSSV3Vector(cve models.NVDCVEData) string {
 	if len(cve.Metrics.CvssMetricV31) > 0 {
 		return cve.Metrics.CvssMetricV31[0].CvssData.VectorString
 	}
 	return ""
 }
 
-func getCVSSV3BaseScore(cve models.CVEData) float64 {
+func getCVSSV3BaseScore(cve models.NVDCVEData) float64 {
 	if len(cve.Metrics.CvssMetricV31) > 0 {
 		return cve.Metrics.CvssMetricV31[0].CvssData.BaseScore
 	}
 	return 0
 }
 
-func getCVSSV3BaseSeverity(cve models.CVEData) string {
+func getCVSSV3BaseSeverity(cve models.NVDCVEData) string {
 	if len(cve.Metrics.CvssMetricV31) > 0 {
 		return cve.Metrics.CvssMetricV31[0].CvssData.BaseSeverity
 	}
 	return ""
 }
 
-func getCVSSV4Vector(cve models.CVEData) string {
+func getCVSSV4Vector(cve models.NVDCVEData) string {
 	if len(cve.Metrics.CvssMetricV40) > 0 {
 		return cve.Metrics.CvssMetricV40[0].CvssData.VectorString
 	}
 	return ""
 }
 
-func getCVSSV4BaseScore(cve models.CVEData) float64 {
+func getCVSSV4BaseScore(cve models.NVDCVEData) float64 {
 	if len(cve.Metrics.CvssMetricV40) > 0 {
 		return cve.Metrics.CvssMetricV40[0].CvssData.BaseScore
 	}
 	return 0
 }
 
-func getCVSSV4BaseSeverity(cve models.CVEData) string {
+func getCVSSV4BaseSeverity(cve models.NVDCVEData) string {
 	if len(cve.Metrics.CvssMetricV40) > 0 {
 		return cve.Metrics.CvssMetricV40[0].CvssData.BaseSeverity
 	}
 	return ""
 }
 
-func getAffectedProducts(cve models.CVEData) []string {
+func getAffectedProducts(cve models.NVDCVEData) []string {
 	var products []string
 	for _, config := range cve.Configurations {
 		for _, node := range config.Nodes {
@@ -363,7 +363,7 @@ func getAffectedProducts(cve models.CVEData) []string {
 	return products
 }
 
-func getReferenceLinks(cve models.CVEData) []string {
+func getReferenceLinks(cve models.NVDCVEData) []string {
 	var links []string
 	for _, ref := range cve.References {
 		links = append(links, ref.URL)
@@ -371,7 +371,7 @@ func getReferenceLinks(cve models.CVEData) []string {
 	return links
 }
 
-func getCWEIDs(cve models.CVEData) []string {
+func getCWEIDs(cve models.NVDCVEData) []string {
 	var cweIDs []string
 	for _, weakness := range cve.Weaknesses {
 		for _, desc := range weakness.Description {
