@@ -63,6 +63,23 @@ func generatePromptCVE(db common.DatabaseConnector, cveID string) (string, error
 	var cve models.CVEData
 	var affectedProducts, cweIDs pq.StringArray
 
+	var StandardVulnerabilityTypes = []string{
+		"Privilege Escalation",
+		"Remote Code Execution (RCE)",
+		"Code Injection",
+		"SQL Injection",
+		"Cross-Site Scripting (XSS)",
+		"Command Injection",
+		"Directory Traversal",
+		"Arbitrary File Upload",
+		"Buffer Overflow",
+		"Race Condition",
+		"Authentication Bypass",
+		"Information Disclosure",
+		"Integer Overflow",
+		"Uncertain",
+	}
+
 	// 1. Load CVE info
 	query := `
 		SELECT 
@@ -148,7 +165,10 @@ func generatePromptCVE(db common.DatabaseConnector, cveID string) (string, error
 		pocInfo = fmt.Sprintf("PoC Availability:\n- GitHub: %d file(s)\n- Exploit-DB: %d entry(ies)", githubCount, edbCount)
 	}
 
-	// 6. Compose final prompt
+	// 6. Vulnerability Type list
+	vulnTypeList := strings.Join(StandardVulnerabilityTypes, ", ")
+
+	// 7. Compose final prompt
 	prompt := fmt.Sprintf(`
 	As a cybersecurity expert, analyze the following vulnerability (%s) and provide a comprehensive summary in JSON format.
 
@@ -158,7 +178,7 @@ func generatePromptCVE(db common.DatabaseConnector, cveID string) (string, error
 		"analysis_summary": "...",        // (Korean) Summary of the vulnerability (max 5 sentences)
 		"affected_systems": "...",        // (Korean) Impacted systems/software types
 		"affected_products": ["..."],     // (English) Specific product names (CPE-based)
-		"vulnerability_type": "...",      // (English) Vulnerability category (e.g., XSS, SQLi)
+		"vulnerability_type": "...",      // (English) Choose one from the list below (do not invent new types)
 		"risk_level": 0,                  // (Integer) 0 = Low, 1 = Medium, 2 = High
 		"recommendation": "...",          // (Korean) Specific mitigation steps (2–3 sentences)
 		"technical_details": "..."        // (Korean) Technical explanation & impact (3–4 sentences)
@@ -172,6 +192,8 @@ func generatePromptCVE(db common.DatabaseConnector, cveID string) (string, error
 	5. Prioritize CWE summaries to understand vulnerability type and consequences.
 	6. Consider PoC availability when judging risk level and recommending mitigations.
 	7. If public PoC is available, reflect this in the 'analysis_summary' as a factor of exploit likelihood.
+	8. 'vulnerability_type' must be selected from the following list only:
+        %s
 
 	---
 
@@ -191,6 +213,7 @@ func generatePromptCVE(db common.DatabaseConnector, cveID string) (string, error
 	%s
 	`,
 		cve.ID,
+		vulnTypeList,
 		cve.Description,
 		cvssInfo,
 		affectedProductsInfo,

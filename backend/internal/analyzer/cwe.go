@@ -96,6 +96,20 @@ func isWeaknessType(t string) bool {
 	return strings.Contains(t, "weakness")
 }
 
+func isValidCWEID(raw string) bool {
+	raw = strings.ToUpper(strings.TrimSpace(raw))
+	return strings.HasPrefix(raw, "CWE-") && len(extractID(raw)) > 0 && isDigits(extractID(raw))
+}
+
 func extractID(input string) string {
 	return strings.TrimPrefix(strings.ToUpper(input), "CWE-")
+}
+
+func isDigits(s string) bool {
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }

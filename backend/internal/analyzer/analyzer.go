@@ -154,9 +154,19 @@ func (a *Analyzer) Run(ctx context.Context, maxAnalyzer int64) error {
 					continue
 				}
 
+				if len(cveInfo.CWEIDs) == 0 {
+					a.logger.Printf("%s | [CWE] no CWE IDs associated with CVE, skipping CWE analysis", cveID)
+					continue
+				}
+
 				for _, cweID := range cveInfo.CWEIDs {
-					cweInfo, err := getCWEInfo(a.db, cweID)
+					if !isValidCWEID(cweID) {
+						a.logger.Printf("%s | [CWE:%s] skipped (invalid CWE ID)", cveID, cweID)
+						continue
+					}
 					id := extractID(cweID)
+
+					cweInfo, err := getCWEInfo(a.db, cweID)
 					if err != nil {
 						a.logger.Errorf("%s | [CWE:%s] DB lookup failed: %v", cveID, id, err)
 						continue
