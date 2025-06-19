@@ -156,63 +156,62 @@ func (a *Analyzer) Run(ctx context.Context, maxAnalyzer int64) error {
 
 				if len(cveInfo.CWEIDs) == 0 {
 					a.logger.Printf("%s | [CWE] no CWE IDs associated with CVE, skipping CWE analysis", cveID)
-					continue
-				}
-
-				for _, cweID := range cveInfo.CWEIDs {
-					if !isValidCWEID(cweID) {
-						a.logger.Printf("%s | [CWE:%s] skipped (invalid CWE ID)", cveID, cweID)
-						continue
-					}
-					id := extractID(cweID)
-
-					cweInfo, err := getCWEInfo(a.db, cweID)
-					if err != nil {
-						a.logger.Errorf("%s | [CWE:%s] DB lookup failed: %v", cveID, id, err)
-						continue
-					}
-					if cweInfo == nil {
-						a.logger.Printf("%s | [CWE:%s] not found in DB, fetching from MITRE...", cveID, id)
-
-						cweData, err := fetchCWEInfo(cweID)
-						if err != nil {
-							a.logger.Errorf("%s | [CWE:%s] fetch failed: %v", cveID, id, err)
+				} else {
+					for _, cweID := range cveInfo.CWEIDs {
+						if !isValidCWEID(cweID) {
+							a.logger.Printf("%s | [CWE:%s] skipped (invalid CWE ID)", cveID, cweID)
 							continue
 						}
+						id := extractID(cweID)
 
-						err = storeCWEData(a.db, cweData)
+						cweInfo, err := getCWEInfo(a.db, cweID)
 						if err != nil {
-							a.logger.Errorf("%s | [CWE:%s] failed to store detailed data: %v", cveID, id, err)
-						}
-						a.logger.Printf("%s | [CWE:%s] detail data stored", cveID, id) 
-
-						prompt, err := generatePromptCWE(cweData)
-						if err != nil {
-							a.logger.Errorf("%s | [CWE:%s] prompt generation failed: %v", cveID, id, err)
+							a.logger.Errorf("%s | [CWE:%s] DB lookup failed: %v", cveID, id, err)
 							continue
 						}
+						if cweInfo == nil {
+							a.logger.Printf("%s | [CWE:%s] not found in DB, fetching from MITRE...", cveID, id)
 
-						summaryCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-						summary, err := callChatGPT(a.openaiClient, summaryCtx, prompt)
-						cancel()
-						if err != nil {
-							a.logger.Errorf("%s | [CWE:%s] LLM request failed: %v", cveID, id, err)
-							continue
-						}
+							cweData, err := fetchCWEInfo(cweID)
+							if err != nil {
+								a.logger.Errorf("%s | [CWE:%s] fetch failed: %v", cveID, id, err)
+								continue
+							}
 
-						parsed, err := parseCWEInfoResponse(cweID, summary)
-						if err != nil {
-							a.logger.Errorf("%s | [CWE:%s] failed to parse LLM response: %v", cveID, id, err)
-							continue
-						}
+							err = storeCWEData(a.db, cweData)
+							if err != nil {
+								a.logger.Errorf("%s | [CWE:%s] failed to store detailed data: %v", cveID, id, err)
+							}
+							a.logger.Printf("%s | [CWE:%s] detail data stored", cveID, id) 
 
-						err = storeCWEInfo(a.db, parsed)
-						if err != nil {
-							a.logger.Errorf("%s | [CWE:%s] failed to store summary data: %v", cveID, id, err)
+							prompt, err := generatePromptCWE(cweData)
+							if err != nil {
+								a.logger.Errorf("%s | [CWE:%s] prompt generation failed: %v", cveID, id, err)
+								continue
+							}
+
+							summaryCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+							summary, err := callChatGPT(a.openaiClient, summaryCtx, prompt)
+							cancel()
+							if err != nil {
+								a.logger.Errorf("%s | [CWE:%s] LLM request failed: %v", cveID, id, err)
+								continue
+							}
+
+							parsed, err := parseCWEInfoResponse(cweID, summary)
+							if err != nil {
+								a.logger.Errorf("%s | [CWE:%s] failed to parse LLM response: %v", cveID, id, err)
+								continue
+							}
+
+							err = storeCWEInfo(a.db, parsed)
+							if err != nil {
+								a.logger.Errorf("%s | [CWE:%s] failed to store summary data: %v", cveID, id, err)
+							}
+							a.logger.Printf("%s | [CWE:%s] summary stored", cveID, id)
+						} else {
+							a.logger.Printf("%s | [CWE:%s] summary loaded" ,cveID, id)
 						}
-						a.logger.Printf("%s | [CWE:%s] summary stored", cveID, id)
-					} else {
-						a.logger.Printf("%s | [CWE:%s] summary loaded" ,cveID, id)
 					}
 				}
 
